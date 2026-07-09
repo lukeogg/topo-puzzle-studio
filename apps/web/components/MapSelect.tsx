@@ -11,6 +11,71 @@ import { boundsMeters, boundsAspect, fmtKm } from "@/lib/geo";
 import type { Bounds } from "@/lib/types";
 import styles from "./MapSelect.module.css";
 
+/**
+ * The same terrarium DEM the mesh pipeline prints from
+ * (`providers/terrain_tiles.py`). Rendering it as hillshade means the relief you
+ * aim the selection box at is the relief that ends up in the STL, rather than a
+ * basemap vendor's independent interpretation of the terrain.
+ *
+ * Opt-in: this contacts a public tile server, which the offline style promises
+ * not to do. Enable with NEXT_PUBLIC_MAP_HILLSHADE=1.
+ */
+const DEM_TILES =
+  "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
+const DEM_MAXZOOM = 15; // Tilezen/joerd publishes terrarium through z15.
+const DEM_ATTRIBUTION =
+  'Elevation: <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md">Tilezen/Mapzen</a> (SRTM, USGS 3DEP, ETOPO1, GMTED2010)';
+const DEM_SOURCE = "topo-dem";
+const HILLSHADE_LAYER = "topo-hillshade";
+
+const hillshadeEnabled = () =>
+  process.env.NEXT_PUBLIC_MAP_HILLSHADE === "1" ||
+  process.env.NEXT_PUBLIC_MAP_HILLSHADE === "true";
+
+/**
+ * Attach hillshade to whatever style just loaded. Returns a teardown that drops
+ * the layer, used to degrade to the bare basemap if the DEM never loads.
+ */
+function addHillshade(map: MlMap) {
+  if (map.getSource(DEM_SOURCE)) return;
+  map.addSource(DEM_SOURCE, {
+    type: "raster-dem",
+    tiles: [DEM_TILES],
+    tileSize: 256,
+    maxzoom: DEM_MAXZOOM,
+    encoding: "terrarium",
+    attribution: DEM_ATTRIBUTION,
+  });
+  // Shading belongs above terrain-ish fills (landcover, water) but beneath the
+  // roads and labels drawn over them, otherwise every road picks up the shadow
+  // tint. Anchor on the first road-family layer; fall back to the first symbol
+  // layer, then to the offline style's graticule.
+  const layers = map.getStyle().layers ?? [];
+  const before =
+    layers.find((l) => /^(road|highway|bridge|tunnel|aeroway)/.test(l.id))?.id ??
+    layers.find((l) => l.type === "symbol")?.id ??
+    (map.getLayer("graticule") ? "graticule" : undefined);
+  map.addLayer(
+    {
+      id: HILLSHADE_LAYER,
+      type: "hillshade",
+      source: DEM_SOURCE,
+      paint: {
+        "hillshade-exaggeration": 0.45,
+        "hillshade-shadow-color": "#4a3f2f",
+        "hillshade-highlight-color": "#fffaf0",
+        "hillshade-accent-color": "#8a7a5f",
+      },
+    },
+    before
+  );
+}
+
+function removeHillshade(map: MlMap) {
+  if (map.getLayer(HILLSHADE_LAYER)) map.removeLayer(HILLSHADE_LAYER);
+  if (map.getSource(DEM_SOURCE)) map.removeSource(DEM_SOURCE);
+}
+
 /** Build a fully-offline cartographic style: cream background + graticule. */
 function offlineStyle(center: [number, number]): StyleSpecification {
   const [lon, lat] = center;
@@ -89,6 +154,7 @@ export default function MapSelect() {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const styleUrl = process.env.NEXT_PUBLIC_MAP_STYLE;
+    const hillshade = hillshadeEnabled();
     const b = config.bounds;
     const center: [number, number] = [
       (b.west + b.east) / 2,
@@ -99,15 +165,34 @@ export default function MapSelect() {
       style: styleUrl || offlineStyle(center),
       center,
       zoom: 9,
-      // The offline style has nothing to attribute; a real style carries its
-      // own provider + OSM credits, which MapLibre reads from style.json.
-      attributionControl: styleUrl ? { compact: true } : false,
+      // The bare offline style has nothing to attribute. A real style carries
+      // its own provider + OSM credits, and hillshade pulls in the DEM's — both
+      // of which MapLibre reads off the source/style definitions.
+      attributionControl: styleUrl || hillshade ? { compact: true } : false,
       dragRotate: false,
     });
     mapRef.current = map;
     const bump = () => setTick((t) => t + 1);
     map.on("move", bump);
+
+    // A single 404 over ocean is routine, so only tear the layer out if the DEM
+    // never produced a usable tile at all (offline, S3 unreachable, blocked).
+    let demLoaded = false;
+    const onSourceData = (e: maplibregl.MapSourceDataEvent) => {
+      if (e.sourceId === DEM_SOURCE && e.isSourceLoaded) demLoaded = true;
+    };
+    map.on("sourcedata", onSourceData);
+    // maplibre-gl does not export ErrorEvent, so narrow sourceId structurally.
+    map.on("error", (e) => {
+      const sourceId = (e as { sourceId?: string }).sourceId;
+      if (sourceId !== DEM_SOURCE || demLoaded) return;
+      demLoaded = true; // latch, so we only tear down once
+      console.warn("Hillshade DEM unavailable; using basemap only.", e.error);
+      removeHillshade(map);
+    });
+
     map.on("load", () => {
+      if (hillshade) addHillshade(map);
       map.fitBounds(
         [
           [b.west, b.south],
@@ -268,7 +353,8 @@ export default function MapSelect() {
         {fmtKm(Math.max(mW, mH))} × {fmtKm(Math.min(mW, mH))} km
         <br />= {config.sizeMm} × {shortMm} mm at scale
       </div>
-      {!process.env.NEXT_PUBLIC_MAP_STYLE && (
+      {/* Only truthful when nothing at all is fetched — hillshade hits S3. */}
+      {!process.env.NEXT_PUBLIC_MAP_STYLE && !hillshadeEnabled() && (
         <div className={styles.offlineBadge}>offline style</div>
       )}
     </div>
