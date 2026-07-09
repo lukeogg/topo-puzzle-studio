@@ -1,10 +1,24 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore, uploadGeotiff } from "@/lib/store";
+import { geocode } from "@/lib/api";
+import {
+  boundsAspect,
+  boundsFromCenter,
+  boundsMeters,
+  mPerDegLon,
+} from "@/lib/geo";
+import type { Bounds, GeocodeResult } from "@/lib/types";
 import { SectionLabel } from "./ui/SectionLabel";
 import { Toggle } from "./ui/Toggle";
 import styles from "./ControlPanel.module.css";
+
+/** Fallback selection box (~0.2° of longitude, aspect-corrected) around a point. */
+function boxAround(lat: number, lon: number, aspect: number): Bounds {
+  const longKm = (0.2 * mPerDegLon(lat)) / 1000;
+  return boundsFromCenter(lat, lon, longKm, aspect);
+}
 
 const LAYOUTS: { key: string; label: string; rows: number; cols: number }[] = [
   { key: "none", label: "none", rows: 1, cols: 1 },
@@ -15,10 +29,71 @@ const LAYOUTS: { key: string; label: string; rows: number; cols: number }[] = [
 ];
 
 export function ControlPanel() {
-  const { config, setConfig, generate, isRunning, job } = useStore();
+  const { config, setConfig, setFlyTo, generate, isRunning, job } = useStore();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // --- place search state ---
+  const [query, setQuery] = useState(config.place);
+  const [results, setResults] = useState<GeocodeResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [noResults, setNoResults] = useState(false);
+  const [open, setOpen] = useState(false);
+  // Suppress the debounced search that would otherwise fire right after a
+  // programmatic query update (picking a result).
+  const skipSearch = useRef(false);
+
+  useEffect(() => {
+    if (skipSearch.current) {
+      skipSearch.current = false;
+      return;
+    }
+    const q = query.trim();
+    if (!q) {
+      setResults([]);
+      setNoResults(false);
+      setOpen(false);
+      return;
+    }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      const res = await geocode(q);
+      setResults(res);
+      setNoResults(res.length === 0);
+      setSearching(false);
+      setOpen(true);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const pickResult = (r: GeocodeResult) => {
+    const bounds = r.bbox ?? boxAround(r.lat, r.lon, config.aspect);
+    skipSearch.current = true;
+    setQuery(r.name);
+    setConfig({
+      place: r.name,
+      lat: r.lat,
+      lon: r.lon,
+      bounds,
+      aspect: boundsAspect(bounds),
+    });
+    setFlyTo([r.lon, r.lat]);
+    setOpen(false);
+    setResults([]);
+    setNoResults(false);
+  };
+
+  // Recenter the map + re-derive the selection box (keeping the current
+  // long-edge size) around an edited lat/lon center.
+  const recenter = (lat: number, lon: number) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const { width, height } = boundsMeters(config.bounds);
+    const longKm = Math.max(width, height) / 1000;
+    const bounds = boundsFromCenter(lat, lon, longKm, config.aspect);
+    setConfig({ lat, lon, bounds });
+    setFlyTo([lon, lat]);
+  };
 
   const shortEdge = Math.round(config.sizeMm * config.aspect);
 
@@ -52,9 +127,56 @@ export function ControlPanel() {
             <input
               className={`field ${styles.search}`}
               placeholder="Search a place…"
-              value={config.place}
-              onChange={(e) => setConfig({ place: e.target.value })}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setConfig({ place: e.target.value });
+              }}
+              onFocus={() => {
+                if (results.length || noResults) setOpen(true);
+              }}
+              onBlur={() => {
+                // Delay so a result click registers before the list closes.
+                window.setTimeout(() => setOpen(false), 150);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && results.length) {
+                  e.preventDefault();
+                  pickResult(results[0]);
+                } else if (e.key === "Escape") {
+                  setOpen(false);
+                }
+              }}
             />
+            {open && (
+              <div className={styles.results}>
+                {searching && (
+                  <div className={styles.resultsMsg}>searching…</div>
+                )}
+                {!searching && noResults && (
+                  <div className={styles.resultsMsg}>no results</div>
+                )}
+                {!searching &&
+                  results.map((r, i) => (
+                    <button
+                      type="button"
+                      key={`${r.name}-${i}`}
+                      className={styles.resultItem}
+                      // onMouseDown fires before the input's onBlur, keeping the
+                      // list alive long enough to complete the pick.
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        pickResult(r);
+                      }}
+                    >
+                      <span className={styles.resultName}>{r.name}</span>
+                      <span className={styles.resultCoord}>
+                        {r.lat.toFixed(3)}, {r.lon.toFixed(3)}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            )}
           </div>
           <div className={styles.grid2}>
             <input
@@ -64,6 +186,11 @@ export function ControlPanel() {
               aria-label="latitude"
               value={config.lat}
               onChange={(e) => setConfig({ lat: parseFloat(e.target.value) || 0 })}
+              onBlur={(e) => recenter(parseFloat(e.target.value) || 0, config.lon)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter")
+                  recenter(parseFloat(e.currentTarget.value) || 0, config.lon);
+              }}
             />
             <input
               className="field"
@@ -72,6 +199,11 @@ export function ControlPanel() {
               aria-label="longitude"
               value={config.lon}
               onChange={(e) => setConfig({ lon: parseFloat(e.target.value) || 0 })}
+              onBlur={(e) => recenter(config.lat, parseFloat(e.target.value) || 0)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter")
+                  recenter(config.lat, parseFloat(e.currentTarget.value) || 0);
+              }}
             />
           </div>
         </section>
@@ -345,6 +477,15 @@ export function ControlPanel() {
                   checked={config.labels}
                   onChange={(v) => setConfig({ labels: v })}
                   label="Underside labels"
+                />
+              </div>
+
+              <div className={styles.rowLabel}>
+                <span>Include display tray/frame</span>
+                <Toggle
+                  checked={config.tray}
+                  onChange={(v) => setConfig({ tray: v })}
+                  label="Include display tray/frame"
                 />
               </div>
 

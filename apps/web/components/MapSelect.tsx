@@ -75,7 +75,7 @@ function offlineStyle(center: [number, number]): StyleSpecification {
 type Corner = "nw" | "ne" | "sw" | "se";
 
 export default function MapSelect() {
-  const { config, setBounds, setConfig } = useStore();
+  const { config, setBounds, setConfig, flyTo } = useStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const [ready, setReady] = useState(false);
@@ -124,6 +124,15 @@ export default function MapSelect() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Recenter the map whenever the store requests a flyTo target (place search
+  // pick or a lat/lon edit). The selection overlay follows config.bounds.
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m || !ready || !flyTo) return;
+    m.flyTo({ center: flyTo, essential: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flyTo, ready]);
 
   const map = mapRef.current;
 

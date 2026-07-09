@@ -21,7 +21,11 @@ function pieceLabelRange(rows: number, cols: number): string {
 }
 
 export function ExportPanel() {
-  const { config, setConfig, job, jobId, reset } = useStore();
+  const { config, job, jobId, reset, generate, isRunning } = useStore();
+
+  // The backend blocks the ZIP when hard validation errors are present: the job
+  // is still "done" but exportable is false and GET /download returns 409.
+  const exportable = (job?.exportable ?? true) && !job?.report?.has_errors;
 
   const pieceCount = job?.piece_count ?? config.rows * config.cols;
   const footprint = job?.footprint_mm;
@@ -47,12 +51,14 @@ export function ExportPanel() {
 
   const checks = job?.report?.checks ?? [];
 
+  // Toggling a format regenerates so the ZIP always matches what's checked —
+  // the ZIP is built during the job, so a re-run is required to change it.
   const setFormat = (key: "combinedStl" | "obj" | "threeMf", value: boolean) => {
-    setConfig({ formats: { ...config.formats, [key]: value } });
+    generate({ formats: { ...config.formats, [key]: value } });
   };
 
   const onDownload = () => {
-    if (!jobId) return;
+    if (!jobId || !exportable) return;
     window.open(downloadUrl(jobId), "_blank");
   };
 
@@ -144,7 +150,7 @@ export function ExportPanel() {
                       : styles.checkOk
                   }
                 >
-                  {c.ok ? "✓" : "⚠"} {c.message}
+                  {c.ok ? "✓" : failing ? "✕" : "⚠"} {c.message}
                 </div>
               );
             })}
@@ -153,10 +159,20 @@ export function ExportPanel() {
       </div>
 
       <div className={styles.footer}>
+        {!exportable && (
+          <div className={styles.blocked}>
+            Export blocked — fix the errors above and regenerate.
+          </div>
+        )}
         <button type="button" className={styles.back} onClick={() => reset()}>
           ← Back to configure
         </button>
-        <button type="button" className={styles.download} onClick={onDownload}>
+        <button
+          type="button"
+          className={styles.download}
+          onClick={onDownload}
+          disabled={!exportable || isRunning || !jobId}
+        >
           DOWNLOAD ZIP ↓
         </button>
       </div>

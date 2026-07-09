@@ -14,6 +14,18 @@ export interface WaterConfig {
   threshold_m: number;
 }
 
+export interface TrayConfig {
+  enabled: boolean;
+}
+
+/** A single geocode search result from GET /api/geocode. */
+export interface GeocodeResult {
+  name: string;
+  lat: number;
+  lon: number;
+  bbox: Bounds | null;
+}
+
 /** The full job request body sent to POST /api/jobs. */
 export interface JobRequest {
   provider: Provider;
@@ -30,6 +42,7 @@ export interface JobRequest {
   smoothing_sigma: number;
   labels: boolean;
   water: WaterConfig;
+  tray?: TrayConfig;
   formats: string[];
 }
 
@@ -57,6 +70,10 @@ export interface JobState {
   report: JobReport | null;
   footprint_mm: [number, number] | null;
   piece_count: number;
+  /** Whether a ZIP exists / download is permitted. False when hard validation errors block export. */
+  exportable: boolean;
+  /** Whether a preview.glb is available for the 3D viewer. */
+  has_preview: boolean;
 }
 
 /** Local configuration state for the control panel. */
@@ -83,6 +100,7 @@ export interface Config {
   labels: boolean;
   waterOn: boolean;
   waterThreshold: number;
+  tray: boolean;
   formats: {
     stl: boolean; // always on
     combinedStl: boolean;

@@ -52,6 +52,7 @@ const DEFAULT_CONFIG: Config = {
   labels: false,
   waterOn: false,
   waterThreshold: 5,
+  tray: false,
   formats: { stl: true, combinedStl: false, obj: false, threeMf: true },
 };
 
@@ -61,6 +62,10 @@ interface StoreValue {
   config: Config;
   setConfig: (patch: Partial<Config>) => void;
   setBounds: (b: Bounds) => void;
+
+  /** Target the map should recenter to, [lon, lat]. Consumed by MapSelect. */
+  flyTo: [number, number] | null;
+  setFlyTo: (target: [number, number] | null) => void;
 
   jobId: string | null;
   job: JobState | null;
@@ -73,7 +78,12 @@ interface StoreValue {
   explode: boolean;
   setExplode: (v: boolean) => void;
 
-  generate: () => Promise<void>;
+  /**
+   * Kick off a generation run. An optional config override is merged over the
+   * current config first — used e.g. when an export-format checkbox change must
+   * regenerate with the newly-selected formats without waiting for a re-render.
+   */
+  generate: (override?: Partial<Config>) => Promise<void>;
   reset: () => void;
 }
 
@@ -81,12 +91,18 @@ const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfigState] = useState<Config>(DEFAULT_CONFIG);
+  const [flyTo, setFlyTo] = useState<[number, number] | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<JobState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("map");
   const [explode, setExplode] = useState(false);
   const unsubRef = useRef<null | (() => void)>(null);
+
+  // Always-current snapshot of config so generate() can read the latest values
+  // (and apply an explicit override) without being recreated on every change.
+  const configRef = useRef(config);
+  configRef.current = config;
 
   const setConfig = useCallback((patch: Partial<Config>) => {
     setConfigState((prev) => ({ ...prev, ...patch }));
@@ -110,7 +126,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setTab("map");
   }, []);
 
-  const generate = useCallback(async () => {
+  const generate = useCallback(async (override?: Partial<Config>) => {
+    const cfg: Config = { ...configRef.current, ...override };
+    // Keep the visible config in sync when generating from an override (e.g. a
+    // format-checkbox change) so the UI reflects what was actually submitted.
+    if (override) setConfigState((prev) => ({ ...prev, ...override }));
+
     setError(null);
     unsubRef.current?.();
     unsubRef.current = null;
@@ -124,37 +145,42 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       warnings: [],
       report: null,
       footprint_mm: null,
-      piece_count: config.rows * config.cols,
+      piece_count: cfg.rows * cfg.cols,
+      exportable: false,
+      has_preview: false,
     });
     setTab("3d");
 
     try {
       // The GeoTIFF upload id (if any) is captured in config.geotiffPath by the
       // control panel's file input before generate is invoked.
-      const geotiffPath = config.geotiffPath;
+      const geotiffPath = cfg.geotiffPath;
 
+      // "stl" is the always-included per-piece baseline; "combined-stl" is the
+      // distinct token for the merged combined.stl.
       const formats: string[] = ["stl"];
-      if (config.formats.combinedStl) formats.push("combined-stl");
-      if (config.formats.obj) formats.push("obj");
-      if (config.formats.threeMf) formats.push("3mf");
+      if (cfg.formats.combinedStl) formats.push("combined-stl");
+      if (cfg.formats.obj) formats.push("obj");
+      if (cfg.formats.threeMf) formats.push("3mf");
 
       const body = buildJobRequest({
-        provider: config.provider,
+        provider: cfg.provider,
         geotiffPath,
-        bounds: config.bounds,
-        sizeMm: config.sizeMm,
-        baseMm: config.baseMm,
-        zExaggeration: config.zExaggeration,
-        rows: config.rows,
-        cols: config.cols,
-        assembly: config.assembly,
-        gapMm: config.gapMm,
-        maxGrid: config.maxGrid,
-        smoothingOn: config.smoothingOn,
-        smoothingSigma: config.smoothingSigma,
-        labels: config.labels,
-        waterOn: config.waterOn,
-        waterThreshold: config.waterThreshold,
+        bounds: cfg.bounds,
+        sizeMm: cfg.sizeMm,
+        baseMm: cfg.baseMm,
+        zExaggeration: cfg.zExaggeration,
+        rows: cfg.rows,
+        cols: cfg.cols,
+        assembly: cfg.assembly,
+        gapMm: cfg.gapMm,
+        maxGrid: cfg.maxGrid,
+        smoothingOn: cfg.smoothingOn,
+        smoothingSigma: cfg.smoothingSigma,
+        labels: cfg.labels,
+        waterOn: cfg.waterOn,
+        waterThreshold: cfg.waterThreshold,
+        tray: cfg.tray,
         formats,
       });
 
@@ -180,15 +206,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         report: null,
         footprint_mm: null,
         piece_count: 0,
+        exportable: false,
+        has_preview: false,
       });
     }
-  }, [config]);
+  }, []);
 
   const value = useMemo<StoreValue>(
     () => ({
       config,
       setConfig,
       setBounds,
+      flyTo,
+      setFlyTo,
       jobId,
       job,
       isRunning,
@@ -205,6 +235,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       config,
       setConfig,
       setBounds,
+      flyTo,
       jobId,
       job,
       isRunning,

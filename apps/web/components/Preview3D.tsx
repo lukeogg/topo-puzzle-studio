@@ -88,7 +88,11 @@ export default function Preview3D() {
   const [tris, setTris] = useState<number | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
 
-  const showModel = hasResult && jobId && !loadFailed;
+  // The backend reports whether a preview mesh exists; a blocked/failed job
+  // finishes without one, so we skip the GLB load and show a placeholder.
+  const hasPreview = job?.has_preview ?? true;
+  const showModel = hasResult && jobId && !loadFailed && hasPreview;
+  const noPreview = hasResult && !hasPreview;
   const url = jobId ? previewGlbUrl(jobId) : "";
   const pieceCount = job?.piece_count ?? config.rows * config.cols;
   const labelRange = pieceLabelRange(config.rows, config.cols);
@@ -150,8 +154,21 @@ export default function Preview3D() {
         <div className={styles.orbitHint}>drag to orbit · scroll to zoom</div>
       )}
 
+      {/* No-preview placeholder (job finished but produced no preview mesh) */}
+      {noPreview && (
+        <div className={styles.pipeline}>
+          No 3D preview available
+          <br />
+          for this result.
+          <br />
+          Check the validation report
+          <br />
+          in the export panel.
+        </div>
+      )}
+
       {/* Pre-result / loading overlay */}
-      {!showModel && (
+      {!showModel && !noPreview && (
         <div className={styles.pipeline}>
           Progress pipeline (fetch
           <br />→ raster → terrain →

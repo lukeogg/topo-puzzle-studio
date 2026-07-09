@@ -1,7 +1,28 @@
-import type { JobRequest, JobState } from "./types";
+import type { GeocodeResult, JobRequest, JobState } from "./types";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://localhost:8000";
+
+/**
+ * Look up a place name via GET /api/geocode?q=...  Returns an array of results.
+ * Resilient by design: any network/parse failure (e.g. the backend is offline)
+ * resolves to an empty array so the UI can degrade gracefully.
+ */
+export async function geocode(q: string): Promise<GeocodeResult[]> {
+  const query = q.trim();
+  if (!query) return [];
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/geocode?q=${encodeURIComponent(query)}`
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+    return data as GeocodeResult[];
+  } catch {
+    return [];
+  }
+}
 
 /** Submit a new generation job. Returns the job id. */
 export async function createJob(body: JobRequest): Promise<string> {
@@ -133,6 +154,7 @@ export function buildJobRequest(config: {
   labels: boolean;
   waterOn: boolean;
   waterThreshold: number;
+  tray: boolean;
   formats: string[];
 }): JobRequest {
   const req: JobRequest = {
@@ -150,10 +172,19 @@ export function buildJobRequest(config: {
     water: { enabled: config.waterOn, threshold_m: config.waterThreshold },
     formats: config.formats,
   };
-  if (config.provider === "terrain-tiles") {
+  // Always send the selected bounds when present — for terrain-tiles the backend
+  // fetches that window, and for geotiff it crops the raster to those bounds
+  // (falling back to the full raster only when there is no overlap).
+  if (config.bounds) {
     req.bounds = config.bounds;
-  } else if (config.geotiffPath) {
+  }
+  // The geotiff provider additionally references the uploaded raster.
+  if (config.provider === "geotiff" && config.geotiffPath) {
     req.geotiff_path = config.geotiffPath;
+  }
+  // Tray maps to the backend's TraySettings object; only send when enabled.
+  if (config.tray) {
+    req.tray = { enabled: true };
   }
   return req;
 }
