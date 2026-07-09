@@ -99,7 +99,9 @@ export default function MapSelect() {
       style: styleUrl || offlineStyle(center),
       center,
       zoom: 9,
-      attributionControl: false,
+      // The offline style has nothing to attribute; a real style carries its
+      // own provider + OSM credits, which MapLibre reads from style.json.
+      attributionControl: styleUrl ? { compact: true } : false,
       dragRotate: false,
     });
     mapRef.current = map;
@@ -257,8 +259,6 @@ export default function MapSelect() {
         {fmtKm(Math.max(mW, mH))} × {fmtKm(Math.min(mW, mH))} km
         <br />= {config.sizeMm} × {shortMm} mm at scale
       </div>
-      <div className={styles.attribution}>⊕ tile provider · attribution</div>
-
       {!process.env.NEXT_PUBLIC_MAP_STYLE && (
         <div className={styles.offlineBadge}>offline style</div>
       )}
