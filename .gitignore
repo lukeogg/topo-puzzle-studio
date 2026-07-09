@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Project outputs
+/out/
+*.zip
+*.stl
+*.3mf
+!examples/**/*.stl
+!examples/*.zip
+!tests/**/*.stl
+
+# Local caches
+.cache/
+tiles-cache/
+
+# Design handoff (large input artifacts, kept local)
+handoff/

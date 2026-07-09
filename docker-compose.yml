@@ -1,0 +1,15 @@
+# Optional convenience only — the supported primary path is `make dev` (native).
+# Docker builds of the geospatial stack are heavier; native arm64 wheels are faster.
+services:
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    ports: ["8000:8000"]
+    volumes: ["./:/app"]
+    command: uvicorn app.main:app --app-dir apps/api --host 0.0.0.0 --port 8000
+
+  web:
+    build: { context: ./apps/web }
+    ports: ["3000:3000"]
+    environment:
+      - NEXT_PUBLIC_API_BASE=http://localhost:8000
+    depends_on: [api]
