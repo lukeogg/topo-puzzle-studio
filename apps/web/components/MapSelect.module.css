@@ -23,6 +23,24 @@
   background: var(--panel);
   border: 1.5px solid var(--orange);
   z-index: 6;
+  /* Stay grabbable when an oversized body has opted out of hit-testing. */
+  pointer-events: auto;
+}
+
+/* Rubber band shown while a new box is being dragged out. */
+.drawBand {
+  position: absolute;
+  border: 1.5px solid var(--orange);
+  background: rgba(216, 83, 31, 0.1);
+  pointer-events: none;
+  z-index: 7;
+}
+
+/* Draw mode: the box must not intercept the press that starts the new one. */
+.drawing :global(.maplibregl-canvas-container),
+.drawing .selection,
+.drawing .handle {
+  cursor: crosshair;
 }
 .nw {
   left: -6px;
@@ -72,9 +90,59 @@
   color: var(--ink);
   line-height: 1.5;
 }
-.offlineBadge {
+/* Arms draw mode for users who will never discover the Shift modifier. */
+.drawBtn {
   position: absolute;
   left: 12px;
+  top: 12px;
+  z-index: 6;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.drawBtn:hover {
+  border-color: var(--orange);
+}
+.drawBtnOn {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: var(--panel);
+}
+
+/* Only rendered when the selection is unreachable, so it can afford to shout. */
+.fitChip {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 8;
+  background: var(--panel);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius);
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--orange-dark);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fitChip:hover {
+  background: var(--orange);
+  color: var(--panel);
+}
+
+.offlineBadge {
+  position: absolute;
+  /* Clears the draw button in the corner. */
+  left: 48px;
   top: 12px;
   z-index: 4;
   font-family: var(--font-mono);

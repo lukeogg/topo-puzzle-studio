@@ -3,23 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore, uploadGeotiff } from "@/lib/store";
 import { geocode } from "@/lib/api";
-import {
-  boundsAspect,
-  boundsFromCenter,
-  boundsFromCenterSize,
-  boundsMeters,
-  mPerDegLon,
-} from "@/lib/geo";
-import type { Bounds, GeocodeResult } from "@/lib/types";
+import { boundsFromCenterSize, boundsMeters } from "@/lib/geo";
+import type { GeocodeResult } from "@/lib/types";
 import { SectionLabel } from "./ui/SectionLabel";
 import { Toggle } from "./ui/Toggle";
 import styles from "./ControlPanel.module.css";
-
-/** Fallback selection box (~0.2° of longitude, aspect-corrected) around a point. */
-function boxAround(lat: number, lon: number, aspect: number): Bounds {
-  const longKm = (0.2 * mPerDegLon(lat)) / 1000;
-  return boundsFromCenter(lat, lon, longKm, aspect);
-}
 
 const LAYOUTS: { key: string; label: string; rows: number; cols: number }[] = [
   { key: "none", label: "none", rows: 1, cols: 1 },
@@ -30,7 +18,8 @@ const LAYOUTS: { key: string; label: string; rows: number; cols: number }[] = [
 ];
 
 export function ControlPanel() {
-  const { config, setConfig, setFlyTo, generate, isRunning, job } = useStore();
+  const { config, setConfig, setMapCommand, generate, isRunning, job } =
+    useStore();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -80,32 +69,40 @@ export function ControlPanel() {
     };
   }, [query]);
 
+  // Hand the camera the place and let MapSelect lay the box down once it knows
+  // the zoom it landed on. The bbox only steers the camera here; it never
+  // becomes the selection, because geocoder bboxes range from a whole state to
+  // a single address and neither is a usable drag target.
   const pickResult = (r: GeocodeResult) => {
-    const bounds = r.bbox ?? boxAround(r.lat, r.lon, config.aspect);
     skipSearch.current = true;
     setQuery(r.name);
+    // The map replaces this provisional box with a viewport-sized one the moment
+    // its camera settles. It still has to be written here: the map is unmounted
+    // whenever the 3D tab owns the pane, and Generate must never quietly run on
+    // the place we just navigated away from.
+    const { width, height } = boundsMeters(config.bounds);
     setConfig({
       place: r.name,
       lat: r.lat,
       lon: r.lon,
-      bounds,
-      aspect: boundsAspect(bounds),
+      bounds: boundsFromCenterSize(r.lat, r.lon, width, height),
     });
-    setFlyTo([r.lon, r.lat]);
+    setMapCommand({ kind: "frame-place", center: [r.lon, r.lat], bbox: r.bbox });
     setOpen(false);
     setResults([]);
     setNoResults(false);
   };
 
-  // Recenter the map + re-derive the selection box around an edited lat/lon
-  // center. Carry width and height across rather than long-edge + aspect, so a
-  // box the user dragged taller-than-wide is not silently rotated to landscape.
+  // A typed lat/lon nudges an existing box rather than replacing it: the user
+  // has already chosen a size, and the zoom has not changed. Carry width and
+  // height across rather than long-edge + aspect, so a box dragged
+  // taller-than-wide is not silently rotated to landscape.
   const recenter = (lat: number, lon: number) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     const { width, height } = boundsMeters(config.bounds);
     const bounds = boundsFromCenterSize(lat, lon, width, height);
     setConfig({ lat, lon, bounds });
-    setFlyTo([lon, lat]);
+    setMapCommand({ kind: "pan-to", center: [lon, lat] });
   };
 
   const shortEdge = Math.round(config.sizeMm * config.aspect);

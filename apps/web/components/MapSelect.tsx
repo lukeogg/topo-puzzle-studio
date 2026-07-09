@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl, {
   type Map as MlMap,
   type StyleSpecification,
@@ -138,17 +138,92 @@ function offlineStyle(center: [number, number]): StyleSpecification {
 }
 
 type Corner = "nw" | "ne" | "sw" | "se";
+type Rect = { left: number; top: number; width: number; height: number };
+
+/** Fraction of the viewport a freshly-placed selection box spans, per axis. */
+const VIEW_BOX_FRAC = 1 / 3;
+/** Zoom used for a searched place that carries no bbox to frame. */
+const PLACE_ZOOM = 11;
+/** Below this, a rubber-band drag is a stray click and is discarded. */
+const MIN_DRAW_PX = 12;
+/** Gap left around the selection when fitting the camera to it. */
+const FIT_PADDING = 70;
+
+/**
+ * The selection box a freshly-framed view gets: the middle third of the canvas.
+ * Deriving it from screen pixels rather than from the place's ground extent is
+ * what guarantees the box is always the same obvious, grabbable size — the
+ * ground size falls out of whatever zoom the camera landed on.
+ */
+function viewportBoxBounds(map: MlMap): Bounds {
+  const canvas = map.getCanvas();
+  const cx = canvas.clientWidth / 2;
+  const cy = canvas.clientHeight / 2;
+  const halfW = (canvas.clientWidth * VIEW_BOX_FRAC) / 2;
+  const halfH = (canvas.clientHeight * VIEW_BOX_FRAC) / 2;
+  const nw = map.unproject([cx - halfW, cy - halfH]);
+  const se = map.unproject([cx + halfW, cy + halfH]);
+  return {
+    west: Math.min(nw.lng, se.lng),
+    east: Math.max(nw.lng, se.lng),
+    south: Math.min(nw.lat, se.lat),
+    north: Math.max(nw.lat, se.lat),
+  };
+}
+
+/** Screen rect spanned by two canvas-space points, normalized. */
+function rectFromPoints(x0: number, y0: number, x1: number, y1: number): Rect {
+  return {
+    left: Math.min(x0, x1),
+    top: Math.min(y0, y1),
+    width: Math.abs(x1 - x0),
+    height: Math.abs(y1 - y0),
+  };
+}
 
 export default function MapSelect() {
-  const { config, setBounds, setConfig, flyTo } = useStore();
+  const { config, setBounds, setConfig, mapCommand, setMapCommand } = useStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const [ready, setReady] = useState(false);
   // Bump to force re-projection of the overlay on every map movement.
   const [, setTick] = useState(0);
 
+  // Armed by the ⬚ button: the next drag anywhere draws a box. Holding Shift
+  // does the same thing without the mode. The ref keeps native listeners, which
+  // are bound once, from reading a stale value.
+  const [drawArmed, setDrawArmed] = useState(false);
+  const drawArmedRef = useRef(false);
+  drawArmedRef.current = drawArmed;
+  // The rubber band, in canvas pixels, while a draw is in flight.
+  const [drawRect, setDrawRect] = useState<Rect | null>(null);
+
   const boundsRef = useRef<Bounds>(config.bounds);
   boundsRef.current = config.bounds;
+
+  // A viewport-sized box placement waiting on the camera to stop moving.
+  const pendingSettleRef = useRef<null | (() => void)>(null);
+
+  const applyBounds = useCallback(
+    (b: Bounds) => {
+      setBounds(b);
+      setConfig({ aspect: boundsAspect(b) });
+    },
+    [setBounds, setConfig]
+  );
+
+  const fitToSelection = useCallback(() => {
+    const m = mapRef.current;
+    if (!m) return;
+    const b = boundsRef.current;
+    m.fitBounds(
+      [
+        [b.west, b.south],
+        [b.east, b.north],
+      ],
+      { padding: FIT_PADDING }
+    );
+  }, []);
 
   // Init map once.
   useEffect(() => {
@@ -170,6 +245,9 @@ export default function MapSelect() {
       // of which MapLibre reads off the source/style definitions.
       attributionControl: styleUrl || hillshade ? { compact: true } : false,
       dragRotate: false,
+      // Shift+drag is the draw-a-selection gesture; MapLibre claims it for
+      // box-zoom by default.
+      boxZoom: false,
     });
     mapRef.current = map;
     const bump = () => setTick((t) => t + 1);
@@ -210,43 +288,195 @@ export default function MapSelect() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Recenter the map whenever the store requests a flyTo target (place search
-  // pick or a lat/lon edit). The selection overlay follows config.bounds.
+  // Carry out the store's pending camera instruction. `pan-to` leaves the box
+  // alone; `frame-place` replaces it with a fresh viewport-sized one.
+  //
+  // The command is consumed rather than left standing. This component unmounts
+  // whenever the 3D tab takes the pane, so a command left in the store would
+  // fire again on remount and silently throw away a box the user had since
+  // dragged into place.
   useEffect(() => {
     const m = mapRef.current;
-    if (!m || !ready || !flyTo) return;
-    m.flyTo({ center: flyTo, essential: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flyTo, ready]);
+    if (!m || !ready || !mapCommand) return;
+    setMapCommand(null);
+
+    if (mapCommand.kind === "pan-to") {
+      m.flyTo({ center: mapCommand.center, essential: true });
+      return;
+    }
+
+    // Supersede a placement still waiting on a previous fly. Tracked in a ref
+    // rather than torn down in effect cleanup, because consuming the command
+    // above re-runs this effect immediately — cleanup would cancel the very
+    // placement we just scheduled.
+    if (pendingSettleRef.current) m.off("moveend", pendingSettleRef.current);
+
+    // Registered before the camera moves so it still catches the `moveend` of a
+    // fly that MapLibre short-circuits into an instant jump.
+    const onSettled = () => {
+      pendingSettleRef.current = null;
+      applyBounds(viewportBoxBounds(m));
+    };
+    pendingSettleRef.current = onSettled;
+    m.once("moveend", onSettled);
+
+    const { center, bbox } = mapCommand;
+    if (bbox) {
+      m.fitBounds(
+        [
+          [bbox.west, bbox.south],
+          [bbox.east, bbox.north],
+        ],
+        { padding: FIT_PADDING, essential: true }
+      );
+    } else {
+      m.flyTo({ center, zoom: PLACE_ZOOM, essential: true });
+    }
+  }, [mapCommand, ready, applyBounds, setMapCommand]);
 
   const map = mapRef.current;
 
   // Project the current bounds to screen pixels for the overlay rectangle.
-  let rect: { left: number; top: number; width: number; height: number } | null =
-    null;
+  let rect: Rect | null = null;
+  // Wholly outside the viewport.
+  let offscreen = false;
+  // Wider or taller than the viewport, so the body blankets the map. Left
+  // interactive it would swallow every drag, which reads as the map being dead.
+  let oversized = false;
+  // No corner handle is on screen, so the box cannot be resized at all. This —
+  // not merely being oversized — is what warrants offering a way back to it;
+  // zooming into your own selection is normal and must stay quiet.
+  let unreachable = false;
   if (map && ready) {
     const b = config.bounds;
     const nw = map.project([b.west, b.north]);
     const se = map.project([b.east, b.south]);
-    rect = {
-      left: Math.min(nw.x, se.x),
-      top: Math.min(nw.y, se.y),
-      width: Math.abs(se.x - nw.x),
-      height: Math.abs(se.y - nw.y),
-    };
+    rect = rectFromPoints(nw.x, nw.y, se.x, se.y);
+
+    const canvas = map.getCanvas();
+    const vw = canvas.clientWidth;
+    const vh = canvas.clientHeight;
+    const { left, top, width, height } = rect;
+    oversized = width > vw || height > vh;
+    offscreen = left + width < 0 || top + height < 0 || left > vw || top > vh;
+    unreachable = ![
+      [left, top],
+      [left + width, top],
+      [left, top + height],
+      [left + width, top + height],
+    ].some(([x, y]) => x >= 0 && x <= vw && y >= 0 && y <= vh);
   }
 
   // --- drag handling ---
-  const applyBounds = (b: Bounds) => {
-    setBounds(b);
-    setConfig({ aspect: boundsAspect(b) });
-  };
+
+  /**
+   * Rubber-band a brand-new selection out of a bare drag. This is the escape
+   * hatch that keeps a box you have panned away from — or one larger than the
+   * screen — from stranding the whole UI: you never have to go find the old box
+   * to replace it.
+   *
+   * Panning is suspended for the duration. `pointerdown` fires before the
+   * `mousedown` MapLibre pans on, so disabling here is enough to hold the map
+   * still without fighting its handlers.
+   */
+  const beginDraw = useCallback(
+    (clientX: number, clientY: number) => {
+      const m = mapRef.current;
+      if (!m) return;
+      const canvasRect = m.getCanvas().getBoundingClientRect();
+      const x0 = clientX - canvasRect.left;
+      const y0 = clientY - canvasRect.top;
+      let cur = rectFromPoints(x0, y0, x0, y0);
+      m.dragPan.disable();
+      setDrawRect(cur);
+
+      const onMove = (ev: PointerEvent) => {
+        cur = rectFromPoints(
+          x0,
+          y0,
+          ev.clientX - canvasRect.left,
+          ev.clientY - canvasRect.top
+        );
+        setDrawRect(cur);
+      };
+      const finish = (commit: boolean) => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onCancel);
+        window.removeEventListener("keydown", onKey);
+        // Panning must come back even on a lost pointer-up, or the map is
+        // permanently stuck.
+        m.dragPan.enable();
+        setDrawRect(null);
+        // A degenerate drag is a stray click. Keep the old box, and stay armed
+        // so a mis-click does not silently drop the mode out from under you.
+        if (!commit || cur.width < MIN_DRAW_PX || cur.height < MIN_DRAW_PX) {
+          return;
+        }
+        setDrawArmed(false);
+        const a = m.unproject([cur.left, cur.top]);
+        const b = m.unproject([cur.left + cur.width, cur.top + cur.height]);
+        applyBounds({
+          west: Math.min(a.lng, b.lng),
+          east: Math.max(a.lng, b.lng),
+          south: Math.min(a.lat, b.lat),
+          north: Math.max(a.lat, b.lat),
+        });
+      };
+      const onUp = () => finish(true);
+      const onCancel = () => finish(false);
+      const onKey = (ev: KeyboardEvent) => {
+        if (ev.key !== "Escape") return;
+        finish(false);
+        setDrawArmed(false);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onCancel);
+      window.addEventListener("keydown", onKey);
+    },
+    [applyBounds]
+  );
+
+  // Draw-to-create over bare map. Bound natively on the canvas container, which
+  // sits under the overlay; drags that start on the box itself are routed into
+  // beginDraw by the handlers below.
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m || !ready) return;
+    const el = m.getCanvasContainer();
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      if (!e.shiftKey && !drawArmedRef.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      beginDraw(e.clientX, e.clientY);
+    };
+    el.addEventListener("pointerdown", onDown);
+    return () => el.removeEventListener("pointerdown", onDown);
+  }, [ready, beginDraw]);
+
+  // Escape disarms a mode entered by mistake.
+  useEffect(() => {
+    if (!drawArmed) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDrawArmed(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawArmed]);
 
   const dragCorner = (corner: Corner) => (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const m = mapRef.current;
     if (!m) return;
+    // Shift, or an armed draw, means "new box" even when the press lands on the
+    // old box's furniture.
+    if (e.shiftKey || drawArmedRef.current) {
+      beginDraw(e.clientX, e.clientY);
+      return;
+    }
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     const onMove = (ev: PointerEvent) => {
       const canvasRect = m.getCanvas().getBoundingClientRect();
@@ -282,6 +512,10 @@ export default function MapSelect() {
     e.stopPropagation();
     const m = mapRef.current;
     if (!m) return;
+    if (e.shiftKey || drawArmedRef.current) {
+      beginDraw(e.clientX, e.clientY);
+      return;
+    }
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     const canvasRect = m.getCanvas().getBoundingClientRect();
     const startLL = m.unproject([
@@ -316,7 +550,7 @@ export default function MapSelect() {
   const shortMm = Math.round(config.sizeMm * config.aspect);
 
   return (
-    <div className={styles.wrap}>
+    <div className={`${styles.wrap} ${drawArmed ? styles.drawing : ""}`}>
       <div ref={containerRef} className={styles.map} />
 
       {/* Selection rectangle overlay */}
@@ -328,6 +562,9 @@ export default function MapSelect() {
             top: rect.top,
             width: rect.width,
             height: rect.height,
+            // An oversized box blankets the canvas; let drags through to the map
+            // so panning keeps working. The handles opt back in via CSS.
+            pointerEvents: oversized ? "none" : undefined,
           }}
           onPointerDown={dragBody}
         >
@@ -341,9 +578,43 @@ export default function MapSelect() {
         </div>
       )}
 
+      {/* Rubber band for an in-flight draw */}
+      {drawRect && (
+        <div
+          className={styles.drawBand}
+          style={{
+            left: drawRect.left,
+            top: drawRect.top,
+            width: drawRect.width,
+            height: drawRect.height,
+          }}
+        />
+      )}
+
+      <button
+        type="button"
+        className={`${styles.drawBtn} ${drawArmed ? styles.drawBtnOn : ""}`}
+        aria-pressed={drawArmed}
+        title="Draw a new selection box — or hold Shift and drag"
+        onClick={() => setDrawArmed((v) => !v)}
+      >
+        ⬚
+      </button>
+
+      {/* Recovery: the box exists, but not where you can reach it. */}
+      {rect && unreachable && !drawRect && (
+        <button
+          type="button"
+          className={styles.fitChip}
+          onClick={fitToSelection}
+        >
+          {offscreen ? "selection off-screen" : "selection fills view"} · fit
+        </button>
+      )}
+
       {/* Hint */}
       <div className={styles.hint}>
-        ◂ drag handles resize the box;
+        ◂ drag handles resize; shift-drag draws a new box
         <br />
         readout stays live in km + mm at scale
       </div>

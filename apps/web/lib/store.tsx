@@ -58,14 +58,27 @@ const DEFAULT_CONFIG: Config = {
 
 export type Tab = "map" | "3d";
 
+/**
+ * A camera instruction for the map, consumed by MapSelect.
+ *
+ * `frame-place` moves the camera to a searched place and then lays down a fresh
+ * selection box sized to the viewport. The box therefore falls out of the zoom
+ * rather than out of the geocoder's bbox — a bbox can be a whole state or a
+ * single street address, and neither reliably yields a box you can grab.
+ * `pan-to` moves the camera only; the caller has already set `bounds` itself.
+ */
+export type MapCommand =
+  | { kind: "frame-place"; center: [number, number]; bbox: Bounds | null }
+  | { kind: "pan-to"; center: [number, number] };
+
 interface StoreValue {
   config: Config;
   setConfig: (patch: Partial<Config>) => void;
   setBounds: (b: Bounds) => void;
 
-  /** Target the map should recenter to, [lon, lat]. Consumed by MapSelect. */
-  flyTo: [number, number] | null;
-  setFlyTo: (target: [number, number] | null) => void;
+  /** Pending camera instruction for the map. Consumed by MapSelect. */
+  mapCommand: MapCommand | null;
+  setMapCommand: (cmd: MapCommand | null) => void;
 
   jobId: string | null;
   job: JobState | null;
@@ -91,7 +104,7 @@ const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfigState] = useState<Config>(DEFAULT_CONFIG);
-  const [flyTo, setFlyTo] = useState<[number, number] | null>(null);
+  const [mapCommand, setMapCommand] = useState<MapCommand | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<JobState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -217,8 +230,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       config,
       setConfig,
       setBounds,
-      flyTo,
-      setFlyTo,
+      mapCommand,
+      setMapCommand,
       jobId,
       job,
       isRunning,
@@ -235,7 +248,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       config,
       setConfig,
       setBounds,
-      flyTo,
+      mapCommand,
       jobId,
       job,
       isRunning,
