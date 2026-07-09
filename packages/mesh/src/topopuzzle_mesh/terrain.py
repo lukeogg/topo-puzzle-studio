@@ -30,6 +30,7 @@ class TerrainResult:
     base_mm: float
     max_slope_deg: float  # steepest local slope after exaggeration
     grid: ElevationGrid  # the processed grid used
+    nodata_fraction: float  # fraction of source cells that were interpolated
 
 
 def heightfield_solid(
@@ -92,12 +93,17 @@ def _max_slope_deg(z_mm: np.ndarray, dx: float, dy: float) -> float:
 
 def build_terrain(grid: ElevationGrid, settings: GenerateSettings) -> TerrainResult:
     """Run the full raster→solid pipeline for a single (un-split) terrain block."""
+    # Cells the *provider* could not supply.  Measured before the warp, whose
+    # unmapped corners are an artifact of rotating a lon/lat quad into UTM
+    # rather than missing data.
+    nodata_fraction = grid.nodata_fraction
     # 1. Project to true metres so dimensions are honest.
     g = demmod.reproject_to_utm(grid)
-    # 2. Resample to the target mesh resolution.
-    g = demmod.resample_to_max(g, settings.max_grid)
-    # 3. Fill nodata, smooth, optional water flattening (in real metres).
+    # 2. Fill nodata *before* resampling — the warp leaves unmapped corner cells
+    #    and a bilinear downsample would smear them into valid terrain.
     g, _ = demmod.fill_nodata(g)
+    # 3. Resample to the target mesh resolution, then smooth / flatten water.
+    g = demmod.resample_to_max(g, settings.max_grid)
     g = demmod.gaussian_smooth(g, settings.smoothing_sigma)
     if settings.water.enabled:
         g = demmod.flatten_water(g, settings.water.threshold_m)
@@ -143,4 +149,5 @@ def build_terrain(grid: ElevationGrid, settings: GenerateSettings) -> TerrainRes
         base_mm=settings.base_mm,
         max_slope_deg=max_slope,
         grid=g,
+        nodata_fraction=nodata_fraction,
     )

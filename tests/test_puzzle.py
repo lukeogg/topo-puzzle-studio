@@ -21,6 +21,23 @@ def test_piece_count_matches_layout(hill_grid, rows, cols):
     assert labels == {piece_label(r, c) for r in range(rows) for c in range(cols)}
 
 
+def test_all_pieces_generated_when_grid_is_downsampled():
+    """Regression: a DEM larger than ``max_grid`` is reprojected *and* resampled.
+    Smearing the warp's nodata corners once made the terrain ~1e28 mm tall, so
+    every piece's CSG intersection came back empty and the export was blocked."""
+    from topopuzzle_mesh import dem
+
+    # A mild downsample is the dangerous one: the bilinear kernel reaches past
+    # the nearest-resampled mask, so the smeared cells survive the gap fill.
+    grid = dem.fixture("hill", 200)
+    s = GenerateSettings(size_mm=180, rows=3, cols=3, max_grid=120)
+    res = split_puzzle(grid, s)
+    assert len(res.pieces) == 9
+    assert res.warnings == []
+    assert res.terrain.z_mm.max() < 200.0  # sane millimetres, not 1e28
+    assert res.terrain.max_slope_deg < 89.0
+
+
 def test_all_pieces_watertight_both_modes(hill_grid):
     for mode in (AssemblyMode.SEPARATE, AssemblyMode.PRINT_IN_PLACE):
         s = GenerateSettings(size_mm=180, rows=3, cols=3, max_grid=120, assembly=mode)

@@ -51,6 +51,14 @@ export function ExportPanel() {
 
   const checks = job?.report?.checks ?? [];
 
+  // job.warnings re-states the warning-level checks and adds pipeline warnings
+  // (e.g. a piece that produced an empty mesh) that have no check of their own.
+  // Only the latter are worth a second line.
+  const checkMessages = new Set(checks.map((c) => c.message));
+  const extraWarnings = (job?.warnings ?? []).filter(
+    (w) => !checkMessages.has(w)
+  );
+
   // Toggling a format regenerates so the ZIP always matches what's checked —
   // the ZIP is built during the job, so a re-run is required to change it.
   const setFormat = (key: "combinedStl" | "obj" | "threeMf", value: boolean) => {
@@ -156,6 +164,20 @@ export function ExportPanel() {
             })}
           </div>
         </section>
+
+        {/* Pipeline diagnostics not covered by a check */}
+        {extraWarnings.length > 0 && (
+          <section className={styles.section}>
+            <SectionLabel label="Diagnostics" />
+            <div className={styles.checkList}>
+              {extraWarnings.map((w, i) => (
+                <div key={`${w}-${i}`} className={styles.checkWarn}>
+                  ⚠ {w}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
 
       <div className={styles.footer}>

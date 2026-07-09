@@ -194,7 +194,9 @@ def validate(result: PuzzleResult) -> ValidationReport:
     )
 
     # --- nodata coverage ---
-    frac = result.terrain.grid.nodata_fraction
+    # The terrain grid has already been gap-filled, so its own mask is empty;
+    # the meaningful number is how much was missing before filling.
+    frac = result.terrain.nodata_fraction
     rep.add(
         "nodata",
         frac <= s.nodata_warn_frac,

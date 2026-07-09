@@ -14,6 +14,11 @@ from scipy import ndimage
 
 from .elevation import Attribution, ElevationGrid
 
+# Sanity bounds on real-world elevations (metres): Challenger Deep to Everest,
+# with headroom.  Anything outside is a sentinel or a decoding bug, not terrain.
+ELEVATION_MIN_M = -12_000.0
+ELEVATION_MAX_M = 9_000.0
+
 # --------------------------------------------------------------------------- #
 # Projection
 # --------------------------------------------------------------------------- #
@@ -79,7 +84,11 @@ def reproject_to_utm(grid: ElevationGrid) -> ElevationGrid:
         dst_crs=dst_crs,
         resampling=Resampling.nearest,
     )
-    mask = (dst_mask > 0.5) | (dst == nodata_val)
+    mask = (dst_mask > 0.5) | (dst == nodata_val) | ~np.isfinite(dst)
+    # Never leave the sentinel in `values`: a UTM warp of a lon/lat quad leaves
+    # unmapped corner pixels, and -1e30 masquerades as a real elevation to any
+    # downstream min()/interpolation.  NaN cannot.
+    dst[mask] = np.nan
 
     b = array_bounds(dst_h, dst_w, dst_transform)  # (west, south, east, north)
     res = (abs(dst_transform.a), abs(dst_transform.e))
@@ -126,7 +135,11 @@ def resample_to_max(grid: ElevationGrid, max_grid: int) -> ElevationGrid:
     new_rows = max(2, round(rows * scale))
     new_cols = max(2, round(cols * scale))
     zoom = (new_rows / rows, new_cols / cols)
-    # Fill nodata before zoom so it doesn't smear; mask is nearest-resampled.
+    # Fill nodata before zoom so it doesn't smear: the bilinear zoom below would
+    # bleed missing cells into valid neighbours, while the nearest-resampled mask
+    # would not grow to cover them.
+    if grid.nodata_fraction > 0.0:
+        grid, _ = fill_nodata(grid)
     values = ndimage.zoom(grid.values, zoom, order=1)
     mask = ndimage.zoom(grid.nodata_mask.astype(np.float32), zoom, order=0) > 0.5
     west, south, east, north = grid.bounds
@@ -199,7 +212,19 @@ def normalize_z(
     footprint and multiplied by the vertical exaggeration.  This keeps a 1x model
     true to life and makes exaggeration a pure multiplier on top of that.
     """
-    relief = values_m - float(values_m.min())
+    # A single leftover nodata sentinel would become the reference min and blow
+    # the relief up by ~30 orders of magnitude, silently yielding a mesh that
+    # every downstream CSG returns empty for.  Refuse it loudly instead.
+    if not np.isfinite(values_m).all():
+        raise ValueError("elevation grid contains non-finite values — fill nodata first")
+    lo, hi = float(values_m.min()), float(values_m.max())
+    if lo < ELEVATION_MIN_M or hi > ELEVATION_MAX_M:
+        raise ValueError(
+            f"elevation range {lo:.1f}..{hi:.1f} m is outside the plausible "
+            f"{ELEVATION_MIN_M:.0f}..{ELEVATION_MAX_M:.0f} m — likely an unfilled "
+            "nodata sentinel in the grid"
+        )
+    relief = values_m - lo
     z = base_mm + relief * horizontal_scale * z_exaggeration
     return z.astype(np.float64)
 

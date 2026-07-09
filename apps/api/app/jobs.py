@@ -7,9 +7,9 @@ to a per-job temp directory.
 
 from __future__ import annotations
 
+import logging
 import tempfile
 import threading
-import traceback
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +20,8 @@ import trimesh
 from topopuzzle_mesh.config import GenerateSettings
 from topopuzzle_mesh.export import finalize_pieces, package_zip
 from topopuzzle_mesh.pipeline import generate
+
+log = logging.getLogger("topopuzzle.jobs")
 
 # A warm, distinguishable palette for preview pieces (RGBA 0-255).
 _PALETTE = [
@@ -74,6 +76,11 @@ class JobManager:
         job.dir = Path(tempfile.mkdtemp(prefix=f"tpz-{job.id}-"))
         with self._lock:
             self._jobs[job.id] = job
+        log.info(
+            "job %s created: provider=%s bounds=%s %dx%d pieces size=%.0fmm z=%.1fx dir=%s",
+            job.id, settings.provider, settings.bounds, settings.rows, settings.cols,
+            settings.size_mm, settings.z_exaggeration, job.dir,
+        )
         threading.Thread(target=self._run, args=(job,), daemon=True).start()
         return job
 
@@ -81,6 +88,8 @@ class JobManager:
         job.status = "running"
         try:
             def prog(stage: str, frac: float) -> None:
+                if stage != job.stage:
+                    log.info("job %s stage=%s", job.id, stage)
                 job.stage, job.progress = stage, float(frac)
 
             out = generate(job.settings, grid=job.grid, progress=prog)
@@ -89,13 +98,23 @@ class JobManager:
             job.footprint_mm = out.result.assembled_footprint_mm
             job.piece_count = len(out.result.pieces)
 
+            log.info(
+                "job %s generated %d/%d pieces, footprint %.0f×%.0f mm",
+                job.id, job.piece_count, job.settings.piece_count, *job.footprint_mm,
+            )
+            for w in job.warnings:
+                log.warning("job %s: %s", job.id, w)
+            for c in out.report.checks:
+                if not c.ok and c.level == "error":
+                    log.error("job %s check %s failed: %s", job.id, c.name, c.message)
+
             # Render the preview so the UI can show the model and the failed
             # checks — best-effort, never fails the job.
             try:
                 _write_glb(out.result, job.dir / "preview.glb")
                 job.has_preview = True
             except Exception:
-                traceback.print_exc()
+                log.exception("job %s: preview render failed", job.id)
                 job.has_preview = False
 
             # Only package a downloadable ZIP when the model passes the hard
@@ -103,12 +122,14 @@ class JobManager:
             job.exportable = not out.report.has_errors
             if job.exportable:
                 package_zip(out.result, out.report, str(job.dir / "puzzle.zip"))
+            else:
+                log.warning("job %s: export blocked by validation errors", job.id)
 
             job.stage, job.progress, job.status = "done", 1.0, "done"
         except Exception as exc:  # pragma: no cover - surfaced to the client
             job.status = "error"
             job.error = f"{exc}"
-            traceback.print_exc()
+            log.exception("job %s failed during stage %s", job.id, job.stage)
 
 
 def _write_glb(result, path: Path) -> None:

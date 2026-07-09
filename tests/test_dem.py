@@ -30,6 +30,41 @@ def test_fill_nodata_removes_mask_and_reports_fraction():
     assert np.isfinite(filled.values).all()
 
 
+def test_reproject_leaves_no_sentinel_in_values():
+    """Warping a lon/lat quad into UTM leaves unmapped corners; they must be
+    masked and NaN, never a finite sentinel that can pass for an elevation."""
+    g = dem.fixture("hill", 64)
+    u = dem.reproject_to_utm(g)
+    assert u.nodata_fraction > 0.0  # rotated quad => unmapped corners
+    assert np.isnan(u.values[u.nodata_mask]).all()
+    valid = u.values[~u.nodata_mask]
+    assert valid.min() > dem.ELEVATION_MIN_M and valid.max() < dem.ELEVATION_MAX_M
+
+
+def test_resample_does_not_smear_nodata_into_valid_cells():
+    """A bilinear downsample must not bleed missing cells into real terrain."""
+    g = dem.reproject_to_utm(dem.fixture("hill", 200))
+    assert max(g.shape) > 120  # ensure the resample path actually runs
+    r = dem.resample_to_max(g, 120)
+    assert np.isfinite(r.values).all()
+    lo, hi = float(r.values.min()), float(r.values.max())
+    assert dem.ELEVATION_MIN_M < lo and hi < dem.ELEVATION_MAX_M
+
+
+def test_normalize_z_rejects_unfilled_nodata():
+    """The regression that produced a 1e28 mm mesh and zero pieces."""
+    import pytest
+
+    with pytest.raises(ValueError, match="non-finite"):
+        dem.normalize_z(
+            np.array([[1.0, np.nan]]), horizontal_scale=0.01, z_exaggeration=1.0, base_mm=3.0
+        )
+    with pytest.raises(ValueError, match="plausible"):
+        dem.normalize_z(
+            np.array([[1.0, -1e30]]), horizontal_scale=0.01, z_exaggeration=1.0, base_mm=3.0
+        )
+
+
 def test_gaussian_smoothing_reduces_variance():
     g = dem.fixture("hill", 64)
     smoothed = dem.gaussian_smooth(g, 2.0)
