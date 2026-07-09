@@ -84,6 +84,39 @@ def test_every_exported_stl_reloads_watertight(hill_grid, base_settings):
         assert m.is_watertight, n
 
 
+def test_combined_stl_only_with_its_token(hill_grid, base_settings):
+    # Without the combined-stl token there is no combined.stl…
+    out = generate(base_settings.model_copy(update={"rows": 2, "cols": 2, "formats": ["stl", "3mf"]}), grid=hill_grid)
+    package_zip(out.result, out.report, "/tmp/_test_nocomb.zip")
+    assert "combined.stl" not in zipfile.ZipFile("/tmp/_test_nocomb.zip").namelist()
+    # …and with it, there is.
+    out2 = generate(base_settings.model_copy(update={"rows": 2, "cols": 2, "formats": ["stl", "combined-stl"]}), grid=hill_grid)
+    package_zip(out2.result, out2.report, "/tmp/_test_comb.zip")
+    assert "combined.stl" in zipfile.ZipFile("/tmp/_test_comb.zip").namelist()
+
+
+def test_tray_packaged_and_watertight(hill_grid, base_settings):
+    s = base_settings.model_copy(update={"rows": 2, "cols": 2})
+    s.tray.enabled = True
+    out = generate(s, grid=hill_grid)
+    names = {c.name for c in out.report.checks}
+    assert "tray_build_volume" in names
+    package_zip(out.result, out.report, "/tmp/_test_tray.zip")
+    z = zipfile.ZipFile("/tmp/_test_tray.zip")
+    assert "tray.stl" in z.namelist()
+    tray = trimesh.load(io.BytesIO(z.read("tray.stl")), file_type="stl")
+    assert tray.is_watertight and tray.volume > 0
+
+
+def test_pip_proximity_uses_mesh_and_footprint(hill_grid):
+    """The PIP gap check runs both the footprint bound and the mesh-level check."""
+    s = GenerateSettings(size_mm=180, rows=2, cols=2, max_grid=100, assembly=AssemblyMode.PRINT_IN_PLACE, gap_mm=0.4)
+    res = split_puzzle(hill_grid, s)
+    rep = validate(res)
+    prox = next(c for c in rep.checks if c.name == "pip_proximity")
+    assert prox.ok  # 0.4 mm gap is respected in the actual meshes
+
+
 def test_3mf_named_objects_and_units(hill_grid, base_settings):
     out = generate(base_settings.model_copy(update={"rows": 2, "cols": 2, "formats": ["3mf"]}), grid=hill_grid)
     buf = "/tmp/_test_pkg3.zip"

@@ -54,7 +54,12 @@ class ValidationReport:
 
 
 def _min_gap_between_pieces(pieces) -> float:
-    """Smallest distance between any two piece footprints (mm)."""
+    """Smallest distance between any two piece footprints (mm).
+
+    Seam walls are vertical (each piece is a prism ∩ terrain), so the 2-D
+    footprint distance is exactly the 3-D minimum separation between two pieces —
+    this is an exact bound, not an approximation.
+    """
     best = float("inf")
     polys: list[tuple[str, Polygon]] = [(p.label, p.fit_footprint) for p in pieces]
     for i in range(len(polys)):
@@ -62,6 +67,31 @@ def _min_gap_between_pieces(pieces) -> float:
             d = polys[i][1].distance(polys[j][1])
             best = min(best, d)
     return best if best != float("inf") else 0.0
+
+
+def _mesh_min_gap_adjacent(pieces) -> float:
+    """Independent mesh-level check: nearest surface distance between grid-adjacent
+    piece *meshes* (not just footprints). Verifies the footprint bound against the
+    actual 3-D geometry. Only neighbouring pairs are checked (others are far)."""
+    import trimesh
+
+    by_rc = {(p.row, p.col): p for p in pieces}
+    best = float("inf")
+    for p in pieces:
+        for dr, dc in ((0, 1), (1, 0)):
+            nb = by_rc.get((p.row + dr, p.col + dc))
+            if nb is None:
+                continue
+            # Sample the neighbour's vertices onto this piece's surface (both ways).
+            for a, b in ((p.mesh, nb.mesh), (nb.mesh, p.mesh)):
+                try:
+                    _, dist, _ = trimesh.proximity.closest_point(a, b.vertices)
+                    best = min(best, float(dist.min()))
+                except Exception:
+                    # Proximity backend unavailable — skip; the exact footprint
+                    # bound stays authoritative. Never report a spurious 0.
+                    pass
+    return best  # inf when nothing could be measured (min() then ignores it)
 
 
 def validate(result: PuzzleResult) -> ValidationReport:
@@ -125,7 +155,8 @@ def validate(result: PuzzleResult) -> ValidationReport:
 
     # --- print-in-place proximity / gap ---
     if s.assembly is AssemblyMode.PRINT_IN_PLACE and len(result.pieces) > 1:
-        gap = _min_gap_between_pieces(result.pieces)
+        # Exact footprint bound plus an independent mesh-level neighbour check.
+        gap = min(_min_gap_between_pieces(result.pieces), _mesh_min_gap_adjacent(result.pieces))
         ok = gap >= s.gap_mm * 0.85
         rep.add(
             "pip_proximity",
@@ -137,6 +168,19 @@ def validate(result: PuzzleResult) -> ValidationReport:
         )
         if s.gap_mm < 0.3:
             rep.add("pip_gap_min", False, f"gap {s.gap_mm} mm is below the 0.3 mm safe minimum for a 0.4 mm nozzle")
+
+    # --- tray fit (if enabled) ---
+    if s.tray.enabled:
+        tw = W + 2 * (s.tray.fit_gap_mm + s.tray.wall_mm)
+        th = H + 2 * (s.tray.fit_gap_mm + s.tray.wall_mm)
+        ok_tray = tw <= bv.x_mm and th <= bv.y_mm
+        rep.add(
+            "tray_build_volume",
+            ok_tray,
+            f"tray {tw:.0f}×{th:.0f} mm fits the plate"
+            if ok_tray
+            else f"tray {tw:.0f}×{th:.0f} mm exceeds the {bv.x_mm:.0f}×{bv.y_mm:.0f} mm plate — print the puzzle without the tray or split it",
+        )
 
     # --- overhang risk ---
     steep = result.terrain.max_slope_deg

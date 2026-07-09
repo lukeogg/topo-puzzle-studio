@@ -34,7 +34,9 @@ def generate(
     max_grid: int = typer.Option(400, "--max-grid", help="Max mesh grid cells on the long side."),
     smoothing: float = typer.Option(0.0, help="Gaussian smoothing sigma (0 = off)."),
     labels: bool = typer.Option(False, help="Emboss underside piece labels."),
-    formats: str = typer.Option("stl,3mf", help="Comma list: stl,3mf,obj."),
+    tray: bool = typer.Option(False, help="Include a display tray/frame (tray.stl)."),
+    formats: str = typer.Option("stl,3mf", help="Comma list: stl,combined-stl,obj,3mf."),
+    force: bool = typer.Option(False, "--force", help="Write the ZIP even if hard validation errors are present."),
 ):
     """Generate a terrain puzzle ZIP."""
     if provider == "geotiff" and not geotiff:
@@ -63,16 +65,28 @@ def generate(
     )
     settings.connector.style = connector_style
     settings.connector.clearance_mm = clearance_mm
+    settings.tray.enabled = tray
 
     with console.status("[bold green]Generating…") as status:
         def prog(stage: str, frac: float):
             status.update(f"[bold green]{stage}[/] {frac*100:.0f}%")
 
         out = run_generate(settings, progress=prog)
-        status.update("[bold green]packaging…")
-        package_zip(out.result, out.report, output)
+        # Hard validation errors block export by default (spec: block, don't ship
+        # an unprintable model) unless the user passes --force.
+        wrote = False
+        if not out.report.has_errors or force:
+            status.update("[bold green]packaging…")
+            package_zip(out.result, out.report, output)
+            wrote = True
 
-    _print_report(out, output)
+    _print_report(out, output if wrote else None, forced=force)
+    if out.report.has_errors and not force:
+        console.print(
+            "[red]✗ export blocked — hard validation errors above.[/] "
+            "Fix the settings and regenerate, or pass [bold]--force[/] to write anyway."
+        )
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -93,7 +107,7 @@ def calibrate(
     console.print(f"[green]wrote coupon[/] → {output}  (watertight={coupon.is_watertight})")
 
 
-def _print_report(out, output: str) -> None:
+def _print_report(out, output: str | None, forced: bool = False) -> None:
     r = out.result
     W, H = r.assembled_footprint_mm
     table = Table(title="TopoPuzzle generation")
@@ -106,9 +120,11 @@ def _print_report(out, output: str) -> None:
         mark = "[green]✓[/]" if c.ok else ("[red]✗[/]" if c.level == "error" else "[yellow]![/]")
         table.add_row(f"{mark} {c.name}", c.message)
     console.print(table)
+    if output is None:
+        return  # export was blocked; the caller prints the reason
     size = os.path.getsize(output) / 1e6
-    if out.report.has_errors:
-        console.print(f"[red]⚠ validation errors present[/] — see report. Wrote {output} ({size:.1f} MB)")
+    if out.report.has_errors and forced:
+        console.print(f"[yellow]⚠ forced write despite validation errors[/] — {output} ({size:.1f} MB)")
     else:
         console.print(f"[bold green]✓ wrote[/] {output} ({size:.1f} MB)")
 

@@ -41,6 +41,8 @@ class Job:
     report: dict | None = None
     footprint_mm: tuple[float, float] | None = None
     piece_count: int = 0
+    exportable: bool = False  # False when hard validation errors block the ZIP
+    has_preview: bool = False
     dir: Path | None = None
 
     def public(self) -> dict:
@@ -54,6 +56,8 @@ class Job:
             "report": self.report,
             "footprint_mm": self.footprint_mm,
             "piece_count": self.piece_count,
+            "exportable": self.exportable,
+            "has_preview": self.has_preview,
         }
 
 
@@ -85,8 +89,20 @@ class JobManager:
             job.footprint_mm = out.result.assembled_footprint_mm
             job.piece_count = len(out.result.pieces)
 
-            package_zip(out.result, out.report, str(job.dir / "puzzle.zip"))
-            _write_glb(out.result, job.dir / "preview.glb")
+            # Render the preview so the UI can show the model and the failed
+            # checks — best-effort, never fails the job.
+            try:
+                _write_glb(out.result, job.dir / "preview.glb")
+                job.has_preview = True
+            except Exception:
+                traceback.print_exc()
+                job.has_preview = False
+
+            # Only package a downloadable ZIP when the model passes the hard
+            # guardrails (spec: block export on hard errors).
+            job.exportable = not out.report.has_errors
+            if job.exportable:
+                package_zip(out.result, out.report, str(job.dir / "puzzle.zip"))
 
             job.stage, job.progress, job.status = "done", 1.0, "done"
         except Exception as exc:  # pragma: no cover - surfaced to the client

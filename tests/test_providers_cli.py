@@ -73,6 +73,46 @@ def test_terrain_tiles_decodes_terrarium(monkeypatch):
     assert grid.attribution.provider.startswith("AWS")
 
 
+def test_geotiff_crops_to_bounds(geotiff_path):
+    from topopuzzle_mesh.config import Bounds
+
+    full = LocalGeoTIFFProvider(geotiff_path).get_elevation_grid(None)
+    # A sub-rectangle of the Montana fixture extent (-111.90..-111.70, 48.50..48.70).
+    sub = LocalGeoTIFFProvider(geotiff_path).get_elevation_grid(
+        Bounds(west=-111.85, south=48.55, east=-111.75, north=48.65)
+    )
+    assert sub.cols < full.cols and sub.rows < full.rows
+    # A bbox with no overlap falls back to the full raster extent (no garbage).
+    far = LocalGeoTIFFProvider(geotiff_path).get_elevation_grid(
+        Bounds(west=10.0, south=10.0, east=10.1, north=10.1)
+    )
+    assert far.shape == full.shape
+
+
+def test_cli_blocks_export_on_hard_errors(geotiff_path, tmp_path):
+    # 900 mm on a 250 mm plate -> build-volume error -> export blocked, no ZIP.
+    out = tmp_path / "blocked.zip"
+    res = runner.invoke(app, ["generate", "--geotiff", geotiff_path, "--rows", "2",
+                              "--cols", "2", "--size-mm", "900", "--output", str(out)])
+    assert res.exit_code == 1
+    assert not out.exists()
+    assert "blocked" in res.output.lower()
+    # --force writes it anyway.
+    res2 = runner.invoke(app, ["generate", "--geotiff", geotiff_path, "--rows", "2",
+                               "--cols", "2", "--size-mm", "900", "--output", str(out), "--force"])
+    assert res2.exit_code == 0 and out.exists()
+
+
+def test_cli_tray_flag_adds_tray(geotiff_path, tmp_path):
+    import zipfile as zf
+
+    out = tmp_path / "tray.zip"
+    res = runner.invoke(app, ["generate", "--geotiff", geotiff_path, "--rows", "2",
+                              "--cols", "2", "--size-mm", "150", "--tray", "--output", str(out)])
+    assert res.exit_code == 0
+    assert "tray.stl" in zf.ZipFile(out).namelist()
+
+
 def test_cli_calibrate_emits_coupon(tmp_path):
     out = tmp_path / "coupon.stl"
     result = runner.invoke(app, ["calibrate", "--clearance-mm", "0.15", "-o", str(out)])

@@ -105,8 +105,48 @@ def job_download(job_id: str) -> FileResponse:
     job = manager.get(job_id)
     if not job or job.status != "done":
         raise HTTPException(404, "download not ready")
+    if not job.exportable:
+        raise HTTPException(
+            409, "export blocked by hard validation errors — fix the settings and regenerate"
+        )
     return FileResponse(
         job.dir / "puzzle.zip",
         media_type="application/zip",
         filename="topopuzzle.zip",
     )
+
+
+@app.get("/api/geocode")
+def geocode(q: str) -> list[dict]:
+    """Best-effort place search via OpenStreetMap Nominatim.
+
+    Optional/online — returns [] on any failure so the UI degrades gracefully.
+    """
+    import requests
+
+    try:
+        resp = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": q, "format": "jsonv2", "limit": 5},
+            headers={"User-Agent": "TopoPuzzleStudio/0.1 (local tool)"},
+            timeout=8,
+        )
+        resp.raise_for_status()
+        out = []
+        for r in resp.json():
+            bb = r.get("boundingbox")  # [south, north, west, east] as strings
+            bbox = None
+            if bb and len(bb) == 4:
+                bbox = {
+                    "south": float(bb[0]), "north": float(bb[1]),
+                    "west": float(bb[2]), "east": float(bb[3]),
+                }
+            out.append({
+                "name": r.get("display_name", q),
+                "lat": float(r["lat"]),
+                "lon": float(r["lon"]),
+                "bbox": bbox,
+            })
+        return out
+    except Exception:
+        return []

@@ -224,7 +224,10 @@ def package_zip(result: PuzzleResult, report: ValidationReport, out_path: str) -
         for label, mesh in named:
             z.writestr(f"{label}.stl", mesh_to_stl_bytes(_to_origin(mesh)))
 
-        if "stl" in s.formats and len(named) > 1:
+        # Optional combined/OBJ/3MF outputs — each gated on its own format token.
+        # "stl" means the per-piece baseline above; "combined-stl" is distinct.
+        wants_combined = ("combined-stl" in s.formats or "combined_stl" in s.formats)
+        if wants_combined and len(named) > 1:
             combined = trimesh.util.concatenate([m for _, m in named])
             z.writestr("combined.stl", mesh_to_stl_bytes(combined))
         if "3mf" in s.formats:
@@ -232,6 +235,15 @@ def package_zip(result: PuzzleResult, report: ValidationReport, out_path: str) -
         if "obj" in s.formats:
             combined = trimesh.util.concatenate([m for _, m in named])
             z.writestr("model.obj", mesh_to_obj_bytes(combined))
+
+        # Optional display tray/frame.
+        if s.tray.enabled:
+            try:
+                from .tray import build_tray
+
+                z.writestr("tray.stl", mesh_to_stl_bytes(build_tray(result.terrain, s)))
+            except Exception:  # tray is best-effort; never fail the whole export
+                pass
 
         z.writestr("coupon.stl", mesh_to_stl_bytes(calibration_coupon(s)))
         z.writestr("color-changes.txt", color_changes_text(result.terrain, s))
