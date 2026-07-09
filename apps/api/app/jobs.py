@@ -29,6 +29,12 @@ _PALETTE = [
     (216, 83, 31), (122, 141, 90), (160, 150, 110), (110, 102, 86),
 ]
 
+# Pipeline meshes are Z-up (Z is elevation); glTF is a Y-up format.  Bake the
+# conversion into the preview vertices rather than leaving it on the node
+# transforms, so each piece node stays at the identity and viewers can offset
+# pieces along a real horizontal plane.
+_Z_UP_TO_Y_UP = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
+
 
 @dataclass
 class Job:
@@ -137,6 +143,7 @@ def _write_glb(result, path: Path) -> None:
     scene = trimesh.Scene()
     for i, (label, mesh) in enumerate(finalize_pieces(result)):
         m = mesh.copy()
+        m.apply_transform(_Z_UP_TO_Y_UP)
         color = np.array([*_PALETTE[i % len(_PALETTE)], 255], dtype=np.uint8)
         m.visual.vertex_colors = np.tile(color, (len(m.vertices), 1))
         scene.add_geometry(m, node_name=label, geom_name=label)

@@ -7,11 +7,17 @@ import React, {
   useState,
 } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Bounds, useGLTF } from "@react-three/drei";
+import { OrbitControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { useStore } from "@/lib/store";
 import { previewGlbUrl } from "@/lib/api";
 import styles from "./Preview3D.module.css";
+
+// The model arrives in true millimetres, so its raw size varies with the plate
+// the user picked. Rescale every model to the same footprint on load; that is
+// what lets one fixed camera and one fixed zoom range frame any result.
+const TARGET_SPAN = 4;
+const GROUND_Y = -0.02;
 
 function pieceLabelRange(rows: number, cols: number): string {
   if (rows <= 1 && cols <= 1) return "solid";
@@ -19,28 +25,53 @@ function pieceLabelRange(rows: number, cols: number): string {
   return `A1–${lastRow}${cols}`;
 }
 
+/**
+ * The GLB nests every piece under a single trimesh "world" node, so the
+ * scene root has exactly one child. Descend past the wrappers to the node
+ * whose children are the pieces themselves.
+ */
+function pieceNodes(root: THREE.Object3D): THREE.Object3D[] {
+  let node = root;
+  while (!(node as THREE.Mesh).isMesh && node.children.length === 1) {
+    node = node.children[0];
+  }
+  return node.children.length > 0 ? node.children : [node];
+}
+
 function Model({
   url,
   explode,
-  onStats,
+  onFramed,
 }: {
   url: string;
   explode: boolean;
-  onStats: (tris: number) => void;
+  onFramed: (framed: { tris: number; height: number }) => void;
 }) {
   const { scene } = useGLTF(url);
   const cloned = useMemo(() => scene.clone(true), [scene]);
 
-  const pieces = useMemo(() => {
+  // Measured while `cloned` is still detached, so these are its own local
+  // coordinates and stay valid once the framing group is applied around it.
+  const { pieces, scale, offset, height } = useMemo(() => {
     const box = new THREE.Box3().setFromObject(cloned);
+    const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
-    return cloned.children.map((child) => {
-      const cbox = new THREE.Box3().setFromObject(child);
-      const cc = cbox.getCenter(new THREE.Vector3());
+    const scale = TARGET_SPAN / Math.max(size.x, size.z, 1e-6);
+
+    const pieces = pieceNodes(cloned).map((child) => {
+      const cc = new THREE.Box3().setFromObject(child).getCenter(new THREE.Vector3());
       const dir = cc.clone().sub(center);
-      dir.y = 0;
+      dir.y = 0; // pieces slide apart in the ground plane, never upward
       return { child, base: child.position.clone(), dir };
     });
+
+    return {
+      pieces,
+      scale,
+      // Centre horizontally and rest the underside on the ground plane.
+      offset: new THREE.Vector3(-center.x, -box.min.y, -center.z),
+      height: size.y * scale,
+    };
   }, [cloned]);
 
   useEffect(() => {
@@ -53,8 +84,8 @@ function Model({
         else if (g.attributes.position) tris += g.attributes.position.count / 3;
       }
     });
-    onStats(Math.round(tris));
-  }, [cloned, onStats]);
+    onFramed({ tris: Math.round(tris), height });
+  }, [cloned, height, onFramed]);
 
   useEffect(() => {
     const amount = explode ? 0.4 : 0;
@@ -63,7 +94,13 @@ function Model({
     });
   }, [explode, pieces]);
 
-  return <primitive object={cloned} />;
+  return (
+    <group scale={scale}>
+      <group position={offset}>
+        <primitive object={cloned} />
+      </group>
+    </group>
+  );
 }
 
 class GlbErrorBoundary extends React.Component<
@@ -85,8 +122,9 @@ class GlbErrorBoundary extends React.Component<
 
 export default function Preview3D() {
   const { hasResult, jobId, job, config, explode } = useStore();
-  const [tris, setTris] = useState<number | null>(null);
+  const [framed, setFramed] = useState<{ tris: number; height: number } | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const tris = framed?.tris ?? null;
 
   // The backend reports whether a preview mesh exists; a blocked/failed job
   // finishes without one, so we skip the GLB load and show a placeholder.
@@ -108,7 +146,7 @@ export default function Preview3D() {
     <div className={styles.wrap}>
       <Canvas
         shadows
-        camera={{ position: [4, 3.5, 5], fov: 40 }}
+        camera={{ position: [3, 4, 6], fov: 40 }}
         dpr={[1, 2]}
       >
         <color attach="background" args={["#efe7d6"]} />
@@ -121,10 +159,10 @@ export default function Preview3D() {
           shadow-mapSize-width={1024}
           shadow-mapSize-height={1024}
         />
-        {/* Ground plane */}
+        {/* Ground plane — a hair below the model so the two never z-fight. */}
         <mesh
           rotation={[-Math.PI / 2, 0, 0]}
-          position={[0, -0.6, 0]}
+          position={[0, GROUND_Y, 0]}
           receiveShadow
         >
           <planeGeometry args={[60, 60]} />
@@ -134,18 +172,18 @@ export default function Preview3D() {
         {showModel && url && (
           <Suspense fallback={null}>
             <GlbErrorBoundary onError={() => setLoadFailed(true)}>
-              <Bounds fit clip observe margin={1.2}>
-                <Model url={url} explode={explode} onStats={setTris} />
-              </Bounds>
+              <Model url={url} explode={explode} onFramed={setFramed} />
             </GlbErrorBoundary>
           </Suspense>
         )}
 
         <OrbitControls
+          makeDefault
           enablePan
           enableDamping
-          minDistance={2}
-          maxDistance={40}
+          target={[0, (framed?.height ?? 0) / 2, 0]}
+          minDistance={1.5}
+          maxDistance={30}
         />
       </Canvas>
 
