@@ -3,7 +3,8 @@
 
 VENV := .venv
 PY := $(VENV)/bin/python
-PIP := $(VENV)/bin/uv pip
+# uv is a standalone binary on PATH, not installed inside the venv.
+PIP_INSTALL := uv pip install --python $(PY)
 API_PORT ?= 8000
 WEB_DIR := apps/web
 
@@ -24,8 +25,8 @@ $(VENV):
 
 .PHONY: setup
 setup: $(VENV)
-	$(PIP) install -e "packages/mesh[dev]"
-	$(PIP) install -e "apps/api"
+	$(PIP_INSTALL) -e "packages/mesh[dev]"
+	$(PIP_INSTALL) -e "apps/api"
 	cd $(WEB_DIR) && npm install
 
 .PHONY: api
