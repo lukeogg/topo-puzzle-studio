@@ -1,0 +1,100 @@
+.wrap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+/* Selection rectangle */
+.selection {
+  position: absolute;
+  border: 1.5px dashed var(--orange);
+  background: rgba(216, 83, 31, 0.06);
+  cursor: move;
+  z-index: 5;
+}
+.handle {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  background: var(--panel);
+  border: 1.5px solid var(--orange);
+  z-index: 6;
+}
+.nw {
+  left: -6px;
+  top: -6px;
+  cursor: nwse-resize;
+}
+.ne {
+  right: -6px;
+  top: -6px;
+  cursor: nesw-resize;
+}
+.sw {
+  left: -6px;
+  bottom: -6px;
+  cursor: nesw-resize;
+}
+.se {
+  right: -6px;
+  bottom: -6px;
+  cursor: nwse-resize;
+}
+
+/* Overlays */
+.hint {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 4;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--orange-dark);
+  text-align: right;
+  pointer-events: none;
+}
+.readout {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 4;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.attribution {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 4;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+  background: rgba(250, 249, 245, 0.8);
+  padding: 3px 7px;
+  border-radius: var(--radius);
+}
+.offlineBadge {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 4;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sand);
+  background: rgba(250, 249, 245, 0.7);
+  padding: 2px 6px;
+  border-radius: var(--radius);
+}

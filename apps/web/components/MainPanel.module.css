@@ -1,0 +1,78 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tabbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--tan-2);
+}
+
+.tabs {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.tab {
+  padding: 5px 16px;
+  background: transparent;
+  border: none;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 500;
+}
+.tab + .tab {
+  border-left: 1px solid var(--line);
+}
+.tabActive {
+  background: var(--green);
+  color: var(--green-soft);
+  font-weight: 600;
+}
+
+.tabRight {
+  display: flex;
+  align-items: center;
+}
+.ground {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.explode {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.explodeLbl {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--panel-2);
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+}

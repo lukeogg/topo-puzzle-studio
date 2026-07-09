@@ -1,0 +1,131 @@
+:root {
+  --bg: #f4eee2;
+  --panel: #faf9f5;
+  --panel-2: #ece3d1;
+  --ink: #23201a;
+  --ink-soft: #6f6656;
+  --line: #cdbfa6;
+  --green: #3d6b48;
+  --green-soft: #e7dcc6;
+  --orange: #d8531f;
+  --orange-dark: #a83d13;
+  --tan: #cdbfa6;
+  --tan-2: #ddd4c3;
+  --sand: #a8996f;
+
+  --font-heading: var(--font-oswald), "Oswald", sans-serif;
+  --font-body: var(--font-barlow), "Barlow", system-ui, sans-serif;
+  --font-mono: var(--font-space-mono), "Space Mono", ui-monospace, monospace;
+
+  --radius: 3px;
+  --panel-w: 360px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/* ---- shared primitives ---- */
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Tiny section label + mono annotation chip */
+.sectionLabel {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.sectionLabel .lbl {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.sectionLabel .chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--tan);
+  letter-spacing: 0.02em;
+}
+
+/* Text / number inputs */
+.field {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+.field:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(61, 107, 72, 0.14);
+}
+.field::placeholder {
+  color: var(--sand);
+}
+
+select.field {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%),
+    linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 55%, calc(100% - 10px) 55%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+.helper {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 6px;
+}
+.helper.faint {
+  color: var(--sand);
+}
+
+/* Focus outline for accessibility */
+:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}

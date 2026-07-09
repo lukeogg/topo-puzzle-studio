@@ -1,0 +1,159 @@
+import type { JobRequest, JobState } from "./types";
+
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://localhost:8000";
+
+/** Submit a new generation job. Returns the job id. */
+export async function createJob(body: JobRequest): Promise<string> {
+  const res = await fetch(`${API_BASE}/api/jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`Job creation failed: ${res.status} ${res.statusText}`);
+  }
+  const data = (await res.json()) as { job_id: string };
+  return data.job_id;
+}
+
+/** Upload a local GeoTIFF. Returns the upload id to use as geotiff_path. */
+export async function uploadGeotiff(file: File): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/api/uploads`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(`Upload failed: ${res.status} ${res.statusText}`);
+  }
+  const data = (await res.json()) as { upload_id: string };
+  return data.upload_id;
+}
+
+/** Poll fallback for a job's current state. */
+export async function getJob(id: string): Promise<JobState> {
+  const res = await fetch(`${API_BASE}/api/jobs/${id}`);
+  if (!res.ok) {
+    throw new Error(`Job fetch failed: ${res.status}`);
+  }
+  return (await res.json()) as JobState;
+}
+
+export function jobStreamUrl(id: string): string {
+  return `${API_BASE}/api/jobs/${id}/stream`;
+}
+
+export function previewGlbUrl(id: string): string {
+  return `${API_BASE}/api/jobs/${id}/preview.glb`;
+}
+
+export function downloadUrl(id: string): string {
+  return `${API_BASE}/api/jobs/${id}/download`;
+}
+
+/**
+ * Subscribe to a job's SSE stream. Calls onUpdate for each payload.
+ * Returns an unsubscribe function. Falls back to polling if EventSource
+ * errors out repeatedly.
+ */
+export function subscribeJob(
+  id: string,
+  onUpdate: (state: JobState) => void,
+  onError?: (err: unknown) => void
+): () => void {
+  let closed = false;
+  let poll: ReturnType<typeof setInterval> | null = null;
+
+  const startPolling = () => {
+    if (poll || closed) return;
+    poll = setInterval(async () => {
+      try {
+        const state = await getJob(id);
+        onUpdate(state);
+        if (state.status === "done" || state.status === "error") {
+          if (poll) clearInterval(poll);
+          poll = null;
+        }
+      } catch (err) {
+        onError?.(err);
+      }
+    }, 1200);
+  };
+
+  let es: EventSource | null = null;
+  try {
+    es = new EventSource(jobStreamUrl(id));
+    es.onmessage = (ev) => {
+      try {
+        const state = JSON.parse(ev.data) as JobState;
+        onUpdate(state);
+        if (state.status === "done" || state.status === "error") {
+          es?.close();
+        }
+      } catch (err) {
+        onError?.(err);
+      }
+    };
+    es.onerror = (err) => {
+      onError?.(err);
+      es?.close();
+      es = null;
+      // Fall back to polling in case the stream is unavailable.
+      startPolling();
+    };
+  } catch (err) {
+    onError?.(err);
+    startPolling();
+  }
+
+  return () => {
+    closed = true;
+    es?.close();
+    if (poll) clearInterval(poll);
+  };
+}
+
+/** Build the wire-format JobRequest from the local UI config. */
+export function buildJobRequest(config: {
+  provider: JobRequest["provider"];
+  geotiffPath: string | null;
+  bounds: JobRequest["bounds"];
+  sizeMm: number;
+  baseMm: number;
+  zExaggeration: number;
+  rows: number;
+  cols: number;
+  assembly: JobRequest["assembly"];
+  gapMm: number;
+  maxGrid: number;
+  smoothingOn: boolean;
+  smoothingSigma: number;
+  labels: boolean;
+  waterOn: boolean;
+  waterThreshold: number;
+  formats: string[];
+}): JobRequest {
+  const req: JobRequest = {
+    provider: config.provider,
+    size_mm: config.sizeMm,
+    base_mm: config.baseMm,
+    z_exaggeration: config.zExaggeration,
+    rows: config.rows,
+    cols: config.cols,
+    assembly: config.assembly,
+    gap_mm: config.gapMm,
+    max_grid: config.maxGrid,
+    smoothing_sigma: config.smoothingOn ? config.smoothingSigma : 0,
+    labels: config.labels,
+    water: { enabled: config.waterOn, threshold_m: config.waterThreshold },
+    formats: config.formats,
+  };
+  if (config.provider === "terrain-tiles") {
+    req.bounds = config.bounds;
+  } else if (config.geotiffPath) {
+    req.geotiff_path = config.geotiffPath;
+  }
+  return req;
+}
