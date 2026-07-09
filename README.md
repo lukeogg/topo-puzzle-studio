@@ -47,14 +47,21 @@ make examples     # writes examples/*.zip from synthetic DEMs (ramp/hill/coastal
 
 | file | purpose |
 |------|---------|
-| `A1.stl … C3.stl` | one **watertight** STL per piece (labels A1, B2, …) |
-| `combined.stl` / `model.3mf` / `model.obj` | assembled reference; 3MF has named per-piece objects in **mm** |
+| `A1.stl … C3.stl` | one **watertight** STL per piece (labels A1, B2, …) — always included |
+| `combined.stl` / `model.3mf` / `model.obj` | assembled reference (each gated on its own format token: `combined-stl`, `3mf`, `obj`); 3MF has named per-piece objects in **mm** |
+| `tray.stl` | optional display tray/frame (when `--tray` / the tray toggle is on) |
 | `coupon.stl` | tab/socket **calibration coupon** at your exact clearance — print first |
 | `color-changes.txt` | exact **Z heights (mm)** for AMS filament changes per elevation band |
 | `validation-report.json` | watertight / build-volume / overhang / min-feature checks |
 | `attribution.txt` | elevation data source + license |
 | `settings.json` | the exact, reproducible settings used |
 | `print-notes.md` | Bambu Studio / PrusaSlicer guidance for this model |
+
+**Hard validation errors block export.** If a piece exceeds the plate, a connector
+neck is below the minimum feature size, or a print-in-place gap would fuse, the tool
+refuses to ship an unprintable model: the CLI exits non-zero and writes nothing
+(pass `--force` to override), and the web app disables the download and shows the
+failing checks. Warnings (overhang, nodata) inform but don't block.
 
 ## Repository layout
 

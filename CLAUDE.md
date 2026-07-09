@@ -30,7 +30,9 @@ source .venv/bin/activate && topopuzzle generate --geotiff f.tif -o out.zip
 - Every exported mesh is **watertight + manifold + positive volume** (re-checked
   independently in `validate.py`, not just trusted from CSG).
 - **mm dimensions are true**: reproject to local UTM before meshing.
-- Min feature ≥ 1.2 mm; build-volume fit; overhang and print-in-place gap warnings.
+- Min feature ≥ 1.2 mm; build-volume fit; print-in-place gap. These are **hard
+  errors that block export** (CLI exits non-zero + no ZIP unless `--force`; API sets
+  `exportable=false` and `/download` 409s). Overhang/nodata are non-blocking warnings.
 - Connector geometry is **original + parametric** (`connectors.py`); print-in-place
   uses straight-walled tabs only (no undercuts).
 
