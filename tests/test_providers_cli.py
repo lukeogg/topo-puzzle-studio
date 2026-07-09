@@ -38,6 +38,41 @@ def test_cli_generate_produces_zip(geotiff_path, tmp_path):
     assert len([n for n in z.namelist() if n.endswith(".stl")]) >= 4
 
 
+def test_terrain_tiles_decodes_terrarium(monkeypatch):
+    """Offline test of the terrarium RGB decode + stitching, with a fake session."""
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    from topopuzzle_mesh.config import Bounds
+    from topopuzzle_mesh.providers.terrain_tiles import TerrainTilesProvider
+
+    # Encode a constant 1000 m: v = 33768 -> R=131, G=232, B=0.
+    tile = np.zeros((256, 256, 3), dtype=np.uint8)
+    tile[..., 0], tile[..., 1], tile[..., 2] = 131, 232, 0
+    buf = io.BytesIO()
+    Image.fromarray(tile, "RGB").save(buf, format="PNG")
+    png = buf.getvalue()
+
+    class FakeResp:
+        content = png
+
+        def raise_for_status(self):
+            pass
+
+    class FakeSession:
+        def get(self, url, timeout=0):
+            return FakeResp()
+
+    prov = TerrainTilesProvider(session=FakeSession())
+    grid = prov.get_elevation_grid(Bounds(west=-111.9, south=48.5, east=-111.7, north=48.7), 90.0)
+    lo, hi = grid.valid_min_max()
+    assert abs(lo - 1000.0) < 1.0 and abs(hi - 1000.0) < 1.0
+    assert "SRTM" in grid.attribution.sources
+    assert grid.attribution.provider.startswith("AWS")
+
+
 def test_cli_calibrate_emits_coupon(tmp_path):
     out = tmp_path / "coupon.stl"
     result = runner.invoke(app, ["calibrate", "--clearance-mm", "0.15", "-o", str(out)])
