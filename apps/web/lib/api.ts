@@ -7,19 +7,28 @@ export const API_BASE =
  * Look up a place name via GET /api/geocode?q=...  Returns an array of results.
  * Resilient by design: any network/parse failure (e.g. the backend is offline)
  * resolves to an empty array so the UI can degrade gracefully.
+ *
+ * Aborts are the one exception — they rethrow. A superseded search must be
+ * distinguishable from "no matches", or the caller would render the stale
+ * request's empty array over the newer request's results.
  */
-export async function geocode(q: string): Promise<GeocodeResult[]> {
+export async function geocode(
+  q: string,
+  signal?: AbortSignal
+): Promise<GeocodeResult[]> {
   const query = q.trim();
   if (!query) return [];
   try {
     const res = await fetch(
-      `${API_BASE}/api/geocode?q=${encodeURIComponent(query)}`
+      `${API_BASE}/api/geocode?q=${encodeURIComponent(query)}`,
+      { signal }
     );
     if (!res.ok) return [];
     const data = await res.json();
     if (!Array.isArray(data)) return [];
     return data as GeocodeResult[];
-  } catch {
+  } catch (err) {
+    if (signal?.aborted || (err as Error)?.name === "AbortError") throw err;
     return [];
   }
 }

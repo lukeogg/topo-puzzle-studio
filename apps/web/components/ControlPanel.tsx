@@ -6,6 +6,7 @@ import { geocode } from "@/lib/api";
 import {
   boundsAspect,
   boundsFromCenter,
+  boundsFromCenterSize,
   boundsMeters,
   mPerDegLon,
 } from "@/lib/geo";
@@ -53,18 +54,30 @@ export function ControlPanel() {
     if (!q) {
       setResults([]);
       setNoResults(false);
+      setSearching(false);
       setOpen(false);
       return;
     }
     setSearching(true);
+    // Cancel a request that already left the gate: clearTimeout only stops one
+    // that has not fired yet. Without the abort, a slow "den" could resolve
+    // after "denver" and overwrite the newer results.
+    const ctrl = new AbortController();
     const t = setTimeout(async () => {
-      const res = await geocode(q);
-      setResults(res);
-      setNoResults(res.length === 0);
-      setSearching(false);
-      setOpen(true);
+      try {
+        const res = await geocode(q, ctrl.signal);
+        setResults(res);
+        setNoResults(res.length === 0);
+        setSearching(false);
+        setOpen(true);
+      } catch {
+        // Superseded by a newer query; the effect that replaced us owns the UI.
+      }
     }, 400);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
   }, [query]);
 
   const pickResult = (r: GeocodeResult) => {
@@ -84,13 +97,13 @@ export function ControlPanel() {
     setNoResults(false);
   };
 
-  // Recenter the map + re-derive the selection box (keeping the current
-  // long-edge size) around an edited lat/lon center.
+  // Recenter the map + re-derive the selection box around an edited lat/lon
+  // center. Carry width and height across rather than long-edge + aspect, so a
+  // box the user dragged taller-than-wide is not silently rotated to landscape.
   const recenter = (lat: number, lon: number) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     const { width, height } = boundsMeters(config.bounds);
-    const longKm = Math.max(width, height) / 1000;
-    const bounds = boundsFromCenter(lat, lon, longKm, config.aspect);
+    const bounds = boundsFromCenterSize(lat, lon, width, height);
     setConfig({ lat, lon, bounds });
     setFlyTo([lon, lat]);
   };
