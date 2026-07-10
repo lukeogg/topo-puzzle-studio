@@ -179,14 +179,29 @@ def validate(result: PuzzleResult) -> ValidationReport:
     if s.tray.enabled:
         tw = W + 2 * (s.tray.fit_gap_mm + s.tray.wall_mm)
         th = H + 2 * (s.tray.fit_gap_mm + s.tray.wall_mm)
-        ok_tray = tw <= bv.x_mm and th <= bv.y_mm
-        rep.add(
-            "tray_build_volume",
-            ok_tray,
-            f"tray {tw:.0f}×{th:.0f} mm fits the plate"
-            if ok_tray
-            else f"tray {tw:.0f}×{th:.0f} mm exceeds the {bv.x_mm:.0f}×{bv.y_mm:.0f} mm plate — print the puzzle without the tray or split it",
-        )
+        fits_whole = tw <= bv.x_mm and th <= bv.y_mm
+        if fits_whole:
+            rep.add("tray_build_volume", True, f"tray {tw:.0f}×{th:.0f} mm fits the plate")
+        elif s.tray.split_oversize:
+            # Mirror tray.split_tray's axis choice: halve the over-plate axis
+            # (the longer one when both exceed).
+            over_x, over_y = tw > bv.x_mm, th > bv.y_mm
+            split_x = (tw >= th) if (over_x and over_y) else over_x
+            hw, hh = (tw / 2.0, th) if split_x else (tw, th / 2.0)
+            halves_fit = hw <= bv.x_mm and hh <= bv.y_mm
+            rep.add(
+                "tray_build_volume",
+                halves_fit,
+                f"tray {tw:.0f}×{th:.0f} mm exceeds the plate — exported as two pinned halves ({hw:.0f}×{hh:.0f} mm each)"
+                if halves_fit
+                else f"tray {tw:.0f}×{th:.0f} mm too large even split into halves ({hw:.0f}×{hh:.0f} mm) — use a smaller model or omit the tray",
+            )
+        else:
+            rep.add(
+                "tray_build_volume",
+                False,
+                f"tray {tw:.0f}×{th:.0f} mm exceeds the {bv.x_mm:.0f}×{bv.y_mm:.0f} mm plate — enable tray splitting, print without the tray, or shrink the model",
+            )
 
     # --- overhang risk ---
     steep = result.terrain.max_slope_deg

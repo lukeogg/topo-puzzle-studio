@@ -17,12 +17,13 @@ Status of the phased plan. ✅ done · 🟡 partial · ⬜ planned.
   Terrain-tiles provider ✅ and attribution manifest ✅; printability/build-volume
   warnings ✅. OpenTopoData ✅, USGS 3DEP ✅, OpenTopography (API-key) ✅. Richer
   geocoding ✅ (Nominatim→Photon fallback, structured results, in-memory cache).
-- **Phase 5 — 3MF + color Tier 2** 🟡
+- **Phase 5 — 3MF + color Tier 2** ✅
   3MF named objects in mm at printable transforms ✅ (Bambu plate metadata
   best-effort, verify in Bambu Studio). Per-band contour meshes ✅ (Tier-2 colour:
   `model-banded.3mf`, CSG-exact slab partition). Magnet pockets ✅ (parametric
   blind pockets in each piece bottom). Advanced puzzle styles ✅ (seeded
   organic-tab + faceted voronoi-tab connectors behind the same seam API).
+  Tray split-halves with alignment pins when oversized ✅.
 - **Phase 6 — OSM overlays (Tier 3)** ⬜
   Overpass adapter + GeoJSON upload, drape/buffer, deboss/emboss/inlay, per-piece
   clipping, connector-safety checks.
@@ -33,4 +34,3 @@ Status of the phased plan. ✅ done · 🟡 partial · ⬜ planned.
 ## Near-term next steps
 
 - Verify the 3MF plate/project metadata by importing into real Bambu Studio.
-- Tray split-halves with alignment pins when the tray exceeds the plate.

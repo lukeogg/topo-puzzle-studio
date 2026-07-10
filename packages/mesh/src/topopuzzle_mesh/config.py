@@ -123,6 +123,13 @@ class TraySettings(BaseModel):
     border_h_mm: float = Field(6.0, gt=1.0)
     #: Gap between the tray recess and the assembled puzzle footprint, per side.
     fit_gap_mm: float = Field(0.4, ge=0.0)
+    #: When the tray exceeds the plate, split it into halves joined by alignment
+    #: pins (each half prints separately) instead of leaving it un-printable.
+    split_oversize: bool = True
+    pin_diameter_mm: float = Field(3.0, gt=0.5, le=10.0)
+    pin_length_mm: float = Field(8.0, gt=2.0, le=40.0)
+    #: Per-side clearance on the pin holes so the halves press together, mm.
+    pin_clearance_mm: float = Field(0.15, ge=0.0, le=0.5)
 
 
 class BuildVolume(BaseModel):

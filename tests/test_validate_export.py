@@ -108,6 +108,56 @@ def test_tray_packaged_and_watertight(hill_grid, base_settings):
     assert tray.is_watertight and tray.volume > 0
 
 
+def _oversized_tray_settings(base_settings):
+    # Narrow plate in X so only the X axis exceeds -> a clean single-axis split.
+    from topopuzzle_mesh.config import BuildVolume
+
+    s = base_settings.model_copy(
+        update={"rows": 2, "cols": 2, "size_mm": 300,
+                "build_volume": BuildVolume(x_mm=200, y_mm=400, z_mm=250)}
+    )
+    s.tray.enabled = True
+    return s
+
+
+def test_tray_splits_into_pinned_halves_when_oversized(hill_grid, base_settings):
+    from topopuzzle_mesh.tray import split_tray
+
+    s = _oversized_tray_settings(base_settings)
+    out = generate(s, grid=hill_grid)
+    parts, warns = split_tray(out.result.terrain, s)
+    assert [n for n, _ in parts] == ["tray-half-A", "tray-half-B"]
+    assert warns == []  # single-axis split resolves the fit cleanly
+    for name, m in parts:
+        assert m.is_watertight and m.volume > 0, name
+        assert m.extents[0] <= s.build_volume.x_mm and m.extents[1] <= s.build_volume.y_mm
+
+
+def test_tray_split_reported_and_zipped(hill_grid, base_settings):
+    s = _oversized_tray_settings(base_settings)
+    out = generate(s, grid=hill_grid)
+    check = next(c for c in out.report.checks if c.name == "tray_build_volume")
+    assert check.ok and "pinned halves" in check.message
+    package_zip(out.result, out.report, "/tmp/_test_traysplit.zip")
+    names = set(zipfile.ZipFile("/tmp/_test_traysplit.zip").namelist())
+    assert "tray-half-A.stl" in names and "tray-half-B.stl" in names
+    assert "tray.stl" not in names
+    z = zipfile.ZipFile("/tmp/_test_traysplit.zip")
+    for n in ("tray-half-A.stl", "tray-half-B.stl"):
+        m = trimesh.load(io.BytesIO(z.read(n)), file_type="stl")
+        assert m.is_watertight and m.volume > 0
+
+
+def test_small_tray_stays_single(hill_grid, base_settings):
+    from topopuzzle_mesh.tray import split_tray
+
+    s = base_settings.model_copy(update={"rows": 2, "cols": 2})
+    s.tray.enabled = True
+    out = generate(s, grid=hill_grid)
+    parts, warns = split_tray(out.result.terrain, s)
+    assert [n for n, _ in parts] == ["tray"] and warns == []
+
+
 def test_pip_proximity_uses_mesh_and_footprint(hill_grid):
     """The PIP gap check runs both the footprint bound and the mesh-level check."""
     s = GenerateSettings(size_mm=180, rows=2, cols=2, max_grid=100, assembly=AssemblyMode.PRINT_IN_PLACE, gap_mm=0.4)

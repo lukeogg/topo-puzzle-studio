@@ -269,12 +269,17 @@ def package_zip(result: PuzzleResult, report: ValidationReport, out_path: str) -
             except Exception:  # contour banding is best-effort colour, never fatal
                 pass
 
-        # Optional display tray/frame.
+        # Optional display tray/frame — split into pinned halves if oversized.
         if s.tray.enabled:
             try:
-                from .tray import build_tray
+                from .tray import split_tray
 
-                z.writestr("tray.stl", mesh_to_stl_bytes(build_tray(result.terrain, s)))
+                parts, tray_warnings = split_tray(result.terrain, s)
+                for name, mesh in parts:
+                    z.writestr(f"{name}.stl", mesh_to_stl_bytes(mesh))
+                for w in tray_warnings:
+                    if w not in result.warnings:
+                        result.warnings.append(w)
             except Exception:  # tray is best-effort; never fail the whole export
                 pass
 
