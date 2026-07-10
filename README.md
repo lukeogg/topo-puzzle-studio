@@ -8,8 +8,7 @@ layout and assembly mode, and export a ZIP of watertight STLs (plus 3MF, OBJ, a
 calibration coupon, AMS color-change heights, an attribution manifest, and print
 notes). Tuned for a **Bambu Lab P2S** (0.4 mm nozzle, ~250 × 250 mm usable plate).
 
-> ![map selection](docs/img/screenshot-map.png) &nbsp; ![3D preview](docs/img/screenshot-3d.png)
-> _(screenshot placeholders — run the app to capture)_
+![map selection](docs/img/screenshot-map.png) &nbsp; ![3D preview](docs/img/screenshot-3d.png)
 
 Everything runs **locally on Apple Silicon** with prebuilt arm64 wheels — no Docker,
 no Homebrew GDAL build. MIT licensed; **generated models belong to you.**
