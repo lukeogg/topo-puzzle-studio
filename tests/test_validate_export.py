@@ -117,6 +117,57 @@ def test_pip_proximity_uses_mesh_and_footprint(hill_grid):
     assert prox.ok  # 0.4 mm gap is respected in the actual meshes
 
 
+def _banded_settings(hill_grid, base_settings):
+    """Settings with three elevation bands spanning the processed terrain range."""
+    from topopuzzle_mesh.config import ElevationBand
+    from topopuzzle_mesh.terrain import build_terrain
+
+    s = base_settings.model_copy(update={"rows": 1, "cols": 1, "max_grid": 100})
+    terrain = build_terrain(hill_grid, s)
+    lo = float(terrain.grid.values.min())
+    hi = float(terrain.grid.values.max())
+    bands = [
+        ElevationBand(min_m=lo, name="low", hex="#2e7d32"),
+        ElevationBand(min_m=lo + (hi - lo) * 0.33, name="mid", hex="#c8a165"),
+        ElevationBand(min_m=lo + (hi - lo) * 0.66, name="high", hex="#ffffff"),
+    ]
+    return terrain, s.model_copy(update={"contour_bands": True, "bands": bands})
+
+
+def test_contour_bands_partition_solid(hill_grid, base_settings):
+    from topopuzzle_mesh.contour import contour_band_meshes
+
+    terrain, s = _banded_settings(hill_grid, base_settings)
+    slabs = contour_band_meshes(terrain, s)
+    assert len(slabs) == 3
+    names = [name for name, _, _ in slabs]
+    assert names == ["low", "mid", "high"]
+    for _, m, _ in slabs:
+        assert m.is_watertight and m.volume > 0
+    # The slabs partition the solid: their volumes sum to the whole (CSG-exact).
+    total = sum(m.volume for _, m, _ in slabs)
+    assert abs(total - terrain.mesh.volume) / terrain.mesh.volume < 0.01
+
+
+def test_contour_bands_in_zip_as_named_objects(hill_grid, base_settings):
+    _, s = _banded_settings(hill_grid, base_settings)
+    out = generate(s, grid=hill_grid)
+    buf = "/tmp/_test_banded.zip"
+    package_zip(out.result, out.report, buf)
+    z = zipfile.ZipFile(buf)
+    assert "model-banded.3mf" in z.namelist()
+    scene = trimesh.load(io.BytesIO(z.read("model-banded.3mf")), file_type="3mf")
+    assert len(scene.geometry) == 3
+    assert scene.units == "millimeter"
+
+
+def test_no_banded_3mf_without_flag(hill_grid, base_settings):
+    _, s = _banded_settings(hill_grid, base_settings)
+    out = generate(s.model_copy(update={"contour_bands": False}), grid=hill_grid)
+    package_zip(out.result, out.report, "/tmp/_test_nobanded.zip")
+    assert "model-banded.3mf" not in zipfile.ZipFile("/tmp/_test_nobanded.zip").namelist()
+
+
 def test_3mf_named_objects_and_units(hill_grid, base_settings):
     out = generate(base_settings.model_copy(update={"rows": 2, "cols": 2, "formats": ["3mf"]}), grid=hill_grid)
     buf = "/tmp/_test_pkg3.zip"

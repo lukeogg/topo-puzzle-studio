@@ -19,7 +19,8 @@ Status of the phased plan. ✅ done · 🟡 partial · ⬜ planned.
   geocoding ✅ (Nominatim→Photon fallback, structured results, in-memory cache).
 - **Phase 5 — 3MF + color Tier 2** 🟡
   3MF named objects in mm at printable transforms ✅ (Bambu plate metadata
-  best-effort, verify in Bambu Studio). Per-band contour meshes ⬜, magnet pockets ⬜,
+  best-effort, verify in Bambu Studio). Per-band contour meshes ✅ (Tier-2 colour:
+  `model-banded.3mf`, CSG-exact slab partition). Magnet pockets ⬜,
   advanced puzzle styles (organic/Voronoi) ⬜.
 - **Phase 6 — OSM overlays (Tier 3)** ⬜
   Overpass adapter + GeoJSON upload, drape/buffer, deboss/emboss/inlay, per-piece

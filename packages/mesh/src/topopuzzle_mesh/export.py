@@ -200,6 +200,7 @@ def readme_text(result: PuzzleResult) -> str:
         "- `combined.stl` / `model.3mf` / `model.obj` — assembled reference (if selected)\n"
         "- `coupon.stl` — connector calibration coupon (print this first)\n"
         "- `color-changes.txt` — AMS filament-change Z heights per elevation band\n"
+        "- `model-banded.3mf` — per-band contour slabs as named objects (Tier-2 colour, if enabled)\n"
         "- `settings.json` — the exact settings used (reproducible)\n"
         "- `validation-report.json` — watertight / build-volume / overhang checks\n"
         "- `attribution.txt` — elevation data source and license\n"
@@ -235,6 +236,20 @@ def package_zip(result: PuzzleResult, report: ValidationReport, out_path: str) -
         if "obj" in s.formats:
             combined = trimesh.util.concatenate([m for _, m in named])
             z.writestr("model.obj", mesh_to_obj_bytes(combined))
+
+        # Tier-2 colour: per-band contour slabs as named 3MF objects.
+        if s.contour_bands and s.bands:
+            try:
+                from .contour import contour_band_meshes
+
+                slabs = contour_band_meshes(result.terrain, s)
+                if slabs:
+                    z.writestr(
+                        "model-banded.3mf",
+                        scene_to_3mf_bytes([(name, mesh) for name, mesh, _ in slabs]),
+                    )
+            except Exception:  # contour banding is best-effort colour, never fatal
+                pass
 
         # Optional display tray/frame.
         if s.tray.enabled:

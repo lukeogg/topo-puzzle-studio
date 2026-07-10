@@ -144,6 +144,9 @@ class GenerateSettings(BaseModel):
     label_depth_mm: float = 0.6
     tray: TraySettings = Field(default_factory=TraySettings)
     bands: list[ElevationBand] = Field(default_factory=list)
+    #: Tier-2 colour: also emit per-band contour slabs as named 3MF objects
+    #: (requires ``bands``; the assembled solid is sliced at each band boundary).
+    contour_bands: bool = False
 
     # --- printer constraints ---
     build_volume: BuildVolume = Field(default_factory=BuildVolume)
