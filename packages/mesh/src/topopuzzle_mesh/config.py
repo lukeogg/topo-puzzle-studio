@@ -160,6 +160,30 @@ class OverlaySettings(BaseModel):
     geojson_path: str | None = None
 
 
+class LandCoverClass(BaseModel):
+    """One land-cover class → filament mapping."""
+
+    code: int
+    name: str = ""
+    hex: str | None = None
+
+
+class LandCoverSettings(BaseModel):
+    """Tier-4: colour the terrain's top shell by land cover (discrete classes)."""
+
+    enabled: bool = False
+    #: Thickness of the per-class coloured top shell, in mm.
+    shell_mm: float = Field(0.8, gt=0.1, le=5.0)
+    #: Drop regions smaller than this at physical scale (purge-waste guardrail).
+    min_region_mm2: float = Field(3.0, ge=0.0)
+    #: Offline path to a classified raster; else ESA WorldCover (network).
+    raster_path: str | None = None
+    #: Explicit class→filament mapping; empty → auto from the grid's most common
+    #: classes, capped at ``max_classes`` (one AMS's worth by default).
+    mapping: list[LandCoverClass] = Field(default_factory=list)
+    max_classes: int = Field(4, ge=1, le=8)
+
+
 class BuildVolume(BaseModel):
     """Usable print area.  Default is a conservative Bambu P2S window."""
 
@@ -203,6 +227,7 @@ class GenerateSettings(BaseModel):
     tray: TraySettings = Field(default_factory=TraySettings)
     magnets: MagnetSettings = Field(default_factory=MagnetSettings)
     overlays: OverlaySettings = Field(default_factory=OverlaySettings)
+    landcover: LandCoverSettings = Field(default_factory=LandCoverSettings)
     bands: list[ElevationBand] = Field(default_factory=list)
     #: Tier-2 colour: also emit per-band contour slabs as named 3MF objects
     #: (requires ``bands``; the assembled solid is sliced at each band boundary).

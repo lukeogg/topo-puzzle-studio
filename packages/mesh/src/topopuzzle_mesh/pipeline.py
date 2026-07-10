@@ -70,11 +70,28 @@ def load_overlay_features(settings: GenerateSettings):
     return OverpassProvider().fetch(settings.bounds, ov.classes)
 
 
+def load_landcover_grid(settings: GenerateSettings):
+    """Load a Tier-4 land-cover grid: local classified raster, else WorldCover."""
+    lc = settings.landcover
+    if not lc.enabled:
+        return None
+    if lc.raster_path:
+        from .providers.landcover import LocalLandCoverProvider
+
+        return LocalLandCoverProvider(lc.raster_path).get_landcover_grid(settings.bounds)
+    if settings.bounds is None:
+        return None
+    from .providers.landcover import WorldCoverProvider
+
+    return WorldCoverProvider().get_landcover_grid(settings.bounds)
+
+
 def generate(
     settings: GenerateSettings,
     grid: ElevationGrid | None = None,
     progress: Progress = _noop,
     features=None,
+    landcover=None,
 ) -> GenerationOutput:
     """Run the full pipeline, optionally with a pre-loaded grid (tests/uploads)."""
     if grid is None:
@@ -84,8 +101,10 @@ def generate(
     progress("terrain", 0.4)
     if features is None and settings.overlays.enabled:
         features = load_overlay_features(settings)
+    if landcover is None and settings.landcover.enabled:
+        landcover = load_landcover_grid(settings)
     progress("splitting", 0.55)
-    result = split_puzzle(grid, settings, features=features)
+    result = split_puzzle(grid, settings, features=features, landcover=landcover)
 
     progress("validating", 0.8)
     report = validate(result)

@@ -56,6 +56,10 @@ class PuzzleResult:
     warnings: list[str] = field(default_factory=list)
     #: Tier-3 inlay ribbons as (name, mesh, hex) — assembled coords, exported to 3MF.
     overlay_objects: list = field(default_factory=list)
+    #: Tier-4 land-cover top-shell regions as (name, mesh, hex).
+    landcover_objects: list = field(default_factory=list)
+    #: Extra attribution blocks (e.g. land-cover licence) for the manifest.
+    extra_attributions: list = field(default_factory=list)
 
     @property
     def assembled_footprint_mm(self) -> tuple[float, float]:
@@ -156,12 +160,14 @@ def _prism(poly: Polygon, z_lo: float, z_hi: float) -> trimesh.Trimesh:
 
 
 def split_puzzle(
-    grid: ElevationGrid, settings: GenerateSettings, features=None
+    grid: ElevationGrid, settings: GenerateSettings, features=None, landcover=None
 ) -> PuzzleResult:
     """Full split: terrain → overlays → tessellation → per-piece CSG intersection."""
     terrain = build_terrain(grid, settings)
     warnings: list[str] = []
     overlay_objects: list = []
+    landcover_objects: list = []
+    extra_attributions: list = []
 
     # Tier-3 overlays are baked into the terrain solid before splitting, so every
     # piece inherits the grooves clipped at its own seams.
@@ -170,6 +176,15 @@ def split_puzzle(
 
         terrain, overlay_objects, ov_warns = apply_overlays(terrain, features, settings)
         warnings.extend(ov_warns)
+
+    # Tier-4 land-cover top-shell colouring, cut from the (post-overlay) solid.
+    if settings.landcover.enabled and landcover is not None:
+        from .landcover import apply_landcover
+
+        landcover_objects, lc_warns, lc_attr = apply_landcover(terrain, landcover, settings)
+        warnings.extend(lc_warns)
+        if lc_attr is not None:
+            extra_attributions.append(lc_attr)
 
     if settings.is_solid:
         piece = Piece(
@@ -180,7 +195,10 @@ def split_puzzle(
             fit_footprint=box(0, 0, terrain.width_mm, terrain.height_mm),
             mesh=terrain.mesh,
         )
-        return PuzzleResult([piece], terrain, settings, warnings, overlay_objects)
+        return PuzzleResult(
+            [piece], terrain, settings, warnings, overlay_objects,
+            landcover_objects, extra_attributions,
+        )
 
     tess = build_tessellation(terrain, settings)
 
@@ -217,4 +235,7 @@ def split_puzzle(
             )
         )
 
-    return PuzzleResult(pieces, terrain, settings, warnings, overlay_objects)
+    return PuzzleResult(
+        pieces, terrain, settings, warnings, overlay_objects,
+        landcover_objects, extra_attributions,
+    )

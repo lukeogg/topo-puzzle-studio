@@ -31,9 +31,12 @@ Status of the phased plan. ✅ done · 🟡 partial · ⬜ planned.
   inherited at seams) ✅; connector-safety (grooves clamped to the base top, so a
   shallow top-surface groove can't sever a full-height tab neck) ✅; ODbL
   attribution ✅. Render mode is global per run; inlay objects are assembled-model.
-- **Phase 7 — land cover (Tier 4)** ⬜
-  ESA WorldCover provider + classified-raster upload, class→filament mapping, top-shell
-  region splitting, purge-waste guardrails; optional Sentinel-2 NDVI adapter.
+- **Phase 7 — land cover (Tier 4)** ✅
+  ESA WorldCover provider (S3 COG, no key) ✅ + local classified-raster upload ✅;
+  class→filament mapping (explicit or auto top-N) ✅; top ~0.8 mm shell region
+  splitting into named 3MF objects ✅; purge-waste guardrails (min-region drop +
+  colour-change/region warnings) ✅; CC BY 4.0 attribution ✅. Optional Sentinel-2
+  NDVI adapter ⬜ (explicitly optional in the spec).
 
 ## Near-term next steps
 

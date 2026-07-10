@@ -159,6 +159,10 @@ def attribution_text(result: PuzzleResult) -> str:
             "Map features (roads/trails/waterways/lakes) © OpenStreetMap contributors,",
             "available under the Open Database License (ODbL). https://www.openstreetmap.org/copyright",
         ]
+    for attr in result.extra_attributions:
+        lines += ["", f"Land cover : {attr.provider}", f"License    : {attr.license}"]
+        if attr.text:
+            lines.append(attr.text)
     lines += [
         "",
         "Generated models belong to you (see LICENSE, MIT).",
@@ -226,6 +230,7 @@ def readme_text(result: PuzzleResult) -> str:
         "- `color-changes.txt` — AMS filament-change Z heights per elevation band\n"
         "- `model-banded.3mf` — per-band contour slabs as named objects (Tier-2 colour, if enabled)\n"
         "- `model-overlays.3mf` — flush OSM inlay ribbons as named objects (Tier-3, if inlay mode)\n"
+        "- `model-landcover.3mf` — per-class land-cover top-shell regions (Tier-4, if enabled)\n"
         "- `settings.json` — the exact settings used (reproducible)\n"
         "- `validation-report.json` — watertight / build-volume / overhang checks\n"
         "- `attribution.txt` — elevation data source and license\n"
@@ -270,6 +275,16 @@ def package_zip(result: PuzzleResult, report: ValidationReport, out_path: str) -
                     scene_to_3mf_bytes([(name, mesh) for name, mesh, _ in result.overlay_objects]),
                 )
             except Exception:  # overlay inlays are best-effort colour, never fatal
+                pass
+
+        # Tier-4 colour: land-cover top-shell regions as named 3MF objects.
+        if result.landcover_objects:
+            try:
+                z.writestr(
+                    "model-landcover.3mf",
+                    scene_to_3mf_bytes([(name, mesh) for name, mesh, _ in result.landcover_objects]),
+                )
+            except Exception:  # land-cover colour is best-effort, never fatal
                 pass
 
         # Tier-2 colour: per-band contour slabs as named 3MF objects.
