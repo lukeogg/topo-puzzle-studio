@@ -13,9 +13,10 @@ Status of the phased plan. ✅ done · 🟡 partial · ⬜ planned.
   Grid split with parametric rounded/straight tab-socket connectors, both assembly
   modes, calibration coupon, embossed underside labels, optional tray/frame,
   elevation-band `color-changes.txt`.
-- **Phase 4 — providers + warnings** 🟡
+- **Phase 4 — providers + warnings** ✅
   Terrain-tiles provider ✅ and attribution manifest ✅; printability/build-volume
-  warnings ✅. OpenTopoData ⬜, richer geocoding ⬜.
+  warnings ✅. OpenTopoData ✅, USGS 3DEP ✅, OpenTopography (API-key) ✅. Richer
+  geocoding ✅ (Nominatim→Photon fallback, structured results, in-memory cache).
 - **Phase 5 — 3MF + color Tier 2** 🟡
   3MF named objects in mm at printable transforms ✅ (Bambu plate metadata
   best-effort, verify in Bambu Studio). Per-band contour meshes ⬜, magnet pockets ⬜,
@@ -30,6 +31,5 @@ Status of the phased plan. ✅ done · 🟡 partial · ⬜ planned.
 ## Near-term next steps
 
 - Verify the 3MF plate/project metadata by importing into real Bambu Studio.
-- USGS 3DEP + OpenTopography providers.
 - Tray split-halves with alignment pins when the tray exceeds the plate.
 - Organic/Voronoi connector styles behind the same `ConnectorSettings` seam API.

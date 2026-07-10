@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from topopuzzle_mesh.config import GenerateSettings
 from topopuzzle_mesh.providers import LocalGeoTIFFProvider
 
+from .geocode import default_geocoder
 from .jobs import manager
 
 app = FastAPI(title="TopoPuzzle Studio API", version="0.1.0")
@@ -117,36 +118,12 @@ def job_download(job_id: str) -> FileResponse:
 
 
 @app.get("/api/geocode")
-def geocode(q: str) -> list[dict]:
-    """Best-effort place search via OpenStreetMap Nominatim.
+def geocode(q: str, limit: int = 8) -> list[dict]:
+    """Structured place search (Nominatim → Photon fallback), cached.
 
     Optional/online — returns [] on any failure so the UI degrades gracefully.
+    Each result carries name/short_name/lat/lon/bbox plus kind, category,
+    importance, and which provider answered.
     """
-    import requests
-
-    try:
-        resp = requests.get(
-            "https://nominatim.openstreetmap.org/search",
-            params={"q": q, "format": "jsonv2", "limit": 5},
-            headers={"User-Agent": "TopoPuzzleStudio/0.1 (local tool)"},
-            timeout=8,
-        )
-        resp.raise_for_status()
-        out = []
-        for r in resp.json():
-            bb = r.get("boundingbox")  # [south, north, west, east] as strings
-            bbox = None
-            if bb and len(bb) == 4:
-                bbox = {
-                    "south": float(bb[0]), "north": float(bb[1]),
-                    "west": float(bb[2]), "east": float(bb[3]),
-                }
-            out.append({
-                "name": r.get("display_name", q),
-                "lat": float(r["lat"]),
-                "lon": float(r["lon"]),
-                "bbox": bbox,
-            })
-        return out
-    except Exception:
-        return []
+    limit = max(1, min(limit, 15))
+    return [p.as_dict() for p in default_geocoder.search(q, limit=limit)]

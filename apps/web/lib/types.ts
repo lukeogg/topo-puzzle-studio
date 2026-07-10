@@ -1,4 +1,9 @@
-export type Provider = "terrain-tiles" | "geotiff";
+export type Provider =
+  | "terrain-tiles"
+  | "geotiff"
+  | "opentopodata"
+  | "usgs-3dep"
+  | "opentopography";
 export type Assembly = "separate-pieces" | "print-in-place";
 export type OutputFormat = "stl" | "combined-stl" | "obj" | "3mf";
 
@@ -24,6 +29,16 @@ export interface GeocodeResult {
   lat: number;
   lon: number;
   bbox: Bounds | null;
+  /** Concise label (e.g. "Denver"); may be empty on older backends. */
+  short_name?: string;
+  /** Feature type: city, peak, park, water, … */
+  kind?: string;
+  /** OSM class: place, natural, boundary, … */
+  category?: string;
+  /** 0..1 rank used for ordering. */
+  importance?: number;
+  /** Which upstream provider answered (nominatim | photon). */
+  source?: string;
 }
 
 /** The full job request body sent to POST /api/jobs. */

@@ -91,6 +91,19 @@
   font-size: 10px;
   color: var(--ink-soft);
 }
+.resultKind {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: var(--chip-bg, rgba(120, 110, 90, 0.16));
+  color: var(--ink-soft);
+  font-family: var(--font-sans, inherit);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
 
 .grid2 {
   display: grid;

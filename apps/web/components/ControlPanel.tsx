@@ -181,6 +181,11 @@ export function ControlPanel() {
                     >
                       <span className={styles.resultName}>{r.name}</span>
                       <span className={styles.resultCoord}>
+                        {r.kind ? (
+                          <span className={styles.resultKind}>
+                            {r.kind.replace(/_/g, " ")}
+                          </span>
+                        ) : null}
                         {r.lat.toFixed(3)}, {r.lon.toFixed(3)}
                       </span>
                     </button>
@@ -229,6 +234,8 @@ export function ControlPanel() {
             }
           >
             <option value="terrain-tiles">Terrain Tiles (global)</option>
+            <option value="usgs-3dep">USGS 3DEP (US, high-res)</option>
+            <option value="opentopodata">OpenTopoData (preview, low-res)</option>
             <option value="geotiff">Local GeoTIFF</option>
           </select>
           {config.provider === "geotiff" && (
