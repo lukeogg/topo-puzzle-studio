@@ -21,7 +21,8 @@ Status of the phased plan. ✅ done · 🟡 partial · ⬜ planned.
   3MF named objects in mm at printable transforms ✅ (Bambu plate metadata
   best-effort, verify in Bambu Studio). Per-band contour meshes ✅ (Tier-2 colour:
   `model-banded.3mf`, CSG-exact slab partition). Magnet pockets ✅ (parametric
-  blind pockets in each piece bottom). Advanced puzzle styles (organic/Voronoi) ⬜.
+  blind pockets in each piece bottom). Advanced puzzle styles ✅ (seeded
+  organic-tab + faceted voronoi-tab connectors behind the same seam API).
 - **Phase 6 — OSM overlays (Tier 3)** ⬜
   Overpass adapter + GeoJSON upload, drape/buffer, deboss/emboss/inlay, per-piece
   clipping, connector-safety checks.
@@ -33,4 +34,3 @@ Status of the phased plan. ✅ done · 🟡 partial · ⬜ planned.
 
 - Verify the 3MF plate/project metadata by importing into real Bambu Studio.
 - Tray split-halves with alignment pins when the tray exceeds the plate.
-- Organic/Voronoi connector styles behind the same `ConnectorSettings` seam API.

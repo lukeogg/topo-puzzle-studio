@@ -66,6 +66,73 @@ def _rounded_tab(width: float, depth: float, root_overlap: float) -> Polygon:
     return neck_poly.union(disc)
 
 
+def _hash01(a: float, b: float, seed: int) -> float:
+    """Deterministic float in [0, 1) from a seam centre + seed.
+
+    Uses an explicit integer mix (not Python's salted ``hash``) so the same seam
+    yields the same shape across processes — connectors must stay deterministic.
+    """
+    x = int(round(a * 1000.0)) & 0xFFFF
+    y = int(round(b * 1000.0)) & 0xFFFF
+    n = (x * 73856093) ^ (y * 19349663) ^ ((seed & 0xFFFF) * 83492791)
+    n &= 0xFFFFFFFF
+    n = ((n ^ (n >> 13)) * 0x5BD1E995) & 0xFFFFFFFF
+    n ^= n >> 15
+    return (n & 0xFFFFFF) / float(0x1000000)
+
+
+def _organic_tab(width: float, depth: float, root_overlap: float, jitter: float) -> Polygon:
+    """A seeded, blobby knob: a neck opening into an irregular lobe (undercut).
+
+    The lobe radius is modulated by a seeded sinusoid so every seam looks a little
+    different — an organic, hand-cut feel — while staying deterministic.
+    """
+    neck = width * 0.5
+    r = width * 0.5
+    cx = max(depth - r, neck)
+    neck_poly = Polygon(
+        [
+            (-root_overlap, -neck / 2),
+            (cx, -neck / 2),
+            (cx, neck / 2),
+            (-root_overlap, neck / 2),
+        ]
+    )
+    ang = np.linspace(-np.pi, np.pi, 48, endpoint=False)
+    amp = 0.12 + 0.10 * jitter
+    phase = 2.0 * np.pi * jitter
+    rr = r * (1.0 + amp * np.sin(3.0 * ang + phase))
+    lobe = Polygon(np.column_stack([cx + rr * np.cos(ang), rr * np.sin(ang)]))
+    out = neck_poly.union(lobe)
+    return out.geoms[0] if out.geom_type == "MultiPolygon" else out
+
+
+def _voronoi_tab(width: float, depth: float, root_overlap: float, jitter: float) -> Polygon:
+    """A seeded, faceted cell knob: a neck into a straight-edged polygon (undercut).
+
+    Straight facets give a Voronoi-cell look; the facet count/rotation vary with
+    the seed.  The widest facets sit past the neck, so it holds like a knob.
+    """
+    neck = width * 0.5
+    r = width * 0.55
+    cx = max(depth - r, neck)
+    neck_poly = Polygon(
+        [
+            (-root_overlap, -neck / 2),
+            (cx, -neck / 2),
+            (cx, neck / 2),
+            (-root_overlap, neck / 2),
+        ]
+    )
+    n = 5 + int(round(jitter))  # 5 or 6 facets
+    rot = 2.0 * np.pi * jitter
+    ang = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False) + rot
+    rr = r * (0.85 + 0.25 * np.abs(np.sin(3.0 * ang)))
+    cell = Polygon(np.column_stack([cx + rr * np.cos(ang), rr * np.sin(ang)]))
+    out = neck_poly.union(cell)
+    return out.geoms[0] if out.geom_type == "MultiPolygon" else out
+
+
 def tab_polygon(
     settings: ConnectorSettings,
     *,
@@ -90,6 +157,10 @@ def tab_polygon(
 
     if settings.style is ConnectorStyle.STRAIGHT_TAB:
         base = _straight_tab(width, depth, root_overlap)
+    elif settings.style is ConnectorStyle.ORGANIC_TAB:
+        base = _organic_tab(width, depth, root_overlap, _hash01(*center, settings.seed))
+    elif settings.style is ConnectorStyle.VORONOI_TAB:
+        base = _voronoi_tab(width, depth, root_overlap, _hash01(*center, settings.seed))
     else:
         base = _rounded_tab(width, depth, root_overlap)
 

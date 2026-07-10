@@ -111,7 +111,13 @@ def validate(result: PuzzleResult) -> ValidationReport:
         W, H = result.assembled_footprint_mm
         edge = min(W / s.cols, H / s.rows)
         tab_w = s.connector.width_frac * edge
-        neck = tab_w * (0.45 if s.connector.style is ConnectorStyle.ROUNDED_TAB else 1.0)
+        # Fraction of the tab width that the narrowest neck occupies, per style.
+        neck_frac = {
+            ConnectorStyle.ROUNDED_TAB: 0.45,
+            ConnectorStyle.ORGANIC_TAB: 0.5,
+            ConnectorStyle.VORONOI_TAB: 0.5,
+        }.get(s.connector.style, 1.0)
+        neck = tab_w * neck_frac
         ok = neck >= s.min_feature_mm
         rep.add(
             "connector_min_feature",

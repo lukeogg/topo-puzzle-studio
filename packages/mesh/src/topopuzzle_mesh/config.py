@@ -21,11 +21,19 @@ class AssemblyMode(str, Enum):
 
 class ConnectorStyle(str, Enum):
     """Connector profile.  Print-in-place forbids undercuts, so it is limited to
-    straight-walled tabs; separate-pieces may use a rounded jigsaw knob."""
+    straight-walled tabs; separate-pieces may use knob styles with an undercut."""
 
     ROUNDED_TAB = "rounded-tab"  # jigsaw-style knob, separate-pieces only
     STRAIGHT_TAB = "straight-tab"  # rectangular, undercut-free — safe print-in-place
+    ORGANIC_TAB = "organic-tab"  # seeded blobby knob, separate-pieces only
+    VORONOI_TAB = "voronoi-tab"  # seeded faceted cell knob, separate-pieces only
     NONE = "none"
+
+
+#: Styles with an undercut — unsafe for print-in-place (would fuse layer-to-layer).
+UNDERCUT_STYLES = frozenset(
+    {ConnectorStyle.ROUNDED_TAB, ConnectorStyle.ORGANIC_TAB, ConnectorStyle.VORONOI_TAB}
+)
 
 
 class RenderMode(str, Enum):
@@ -175,7 +183,7 @@ class GenerateSettings(BaseModel):
     def _defaults_by_assembly(self) -> "GenerateSettings":
         # Print-in-place must not use undercut connectors.
         if self.assembly is AssemblyMode.PRINT_IN_PLACE:
-            if self.connector.style is ConnectorStyle.ROUNDED_TAB:
+            if self.connector.style in UNDERCUT_STYLES:
                 self.connector.style = ConnectorStyle.STRAIGHT_TAB
         return self
 
