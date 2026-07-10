@@ -54,10 +54,27 @@ def load_grid(settings: GenerateSettings, progress: Progress = _noop) -> Elevati
     return grid
 
 
+def load_overlay_features(settings: GenerateSettings):
+    """Load Tier-3 overlay features: local GeoJSON if given, else Overpass."""
+    ov = settings.overlays
+    if not ov.enabled:
+        return None
+    if ov.geojson_path:
+        from .providers.osm import load_geojson_features
+
+        return load_geojson_features(ov.geojson_path)
+    if settings.bounds is None:
+        return None
+    from .providers.osm import OverpassProvider
+
+    return OverpassProvider().fetch(settings.bounds, ov.classes)
+
+
 def generate(
     settings: GenerateSettings,
     grid: ElevationGrid | None = None,
     progress: Progress = _noop,
+    features=None,
 ) -> GenerationOutput:
     """Run the full pipeline, optionally with a pre-loaded grid (tests/uploads)."""
     if grid is None:
@@ -65,8 +82,10 @@ def generate(
 
     progress("processing", 0.2)
     progress("terrain", 0.4)
+    if features is None and settings.overlays.enabled:
+        features = load_overlay_features(settings)
     progress("splitting", 0.55)
-    result = split_puzzle(grid, settings)
+    result = split_puzzle(grid, settings, features=features)
 
     progress("validating", 0.8)
     report = validate(result)

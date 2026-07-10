@@ -54,6 +54,8 @@ class PuzzleResult:
     terrain: TerrainResult
     settings: GenerateSettings
     warnings: list[str] = field(default_factory=list)
+    #: Tier-3 inlay ribbons as (name, mesh, hex) — assembled coords, exported to 3MF.
+    overlay_objects: list = field(default_factory=list)
 
     @property
     def assembled_footprint_mm(self) -> tuple[float, float]:
@@ -153,10 +155,21 @@ def _prism(poly: Polygon, z_lo: float, z_hi: float) -> trimesh.Trimesh:
     return m
 
 
-def split_puzzle(grid: ElevationGrid, settings: GenerateSettings) -> PuzzleResult:
-    """Full split: terrain → tessellation → per-piece CSG intersection."""
+def split_puzzle(
+    grid: ElevationGrid, settings: GenerateSettings, features=None
+) -> PuzzleResult:
+    """Full split: terrain → overlays → tessellation → per-piece CSG intersection."""
     terrain = build_terrain(grid, settings)
     warnings: list[str] = []
+    overlay_objects: list = []
+
+    # Tier-3 overlays are baked into the terrain solid before splitting, so every
+    # piece inherits the grooves clipped at its own seams.
+    if settings.overlays.enabled and features:
+        from .overlays import apply_overlays
+
+        terrain, overlay_objects, ov_warns = apply_overlays(terrain, features, settings)
+        warnings.extend(ov_warns)
 
     if settings.is_solid:
         piece = Piece(
@@ -167,7 +180,7 @@ def split_puzzle(grid: ElevationGrid, settings: GenerateSettings) -> PuzzleResul
             fit_footprint=box(0, 0, terrain.width_mm, terrain.height_mm),
             mesh=terrain.mesh,
         )
-        return PuzzleResult([piece], terrain, settings, warnings)
+        return PuzzleResult([piece], terrain, settings, warnings, overlay_objects)
 
     tess = build_tessellation(terrain, settings)
 
@@ -204,4 +217,4 @@ def split_puzzle(grid: ElevationGrid, settings: GenerateSettings) -> PuzzleResul
             )
         )
 
-    return PuzzleResult(pieces, terrain, settings, warnings)
+    return PuzzleResult(pieces, terrain, settings, warnings, overlay_objects)

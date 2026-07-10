@@ -42,6 +42,15 @@ class RenderMode(str, Enum):
     INLAY = "inlay"
 
 
+class OverlayClass(str, Enum):
+    """OSM feature classes that can be draped onto the terrain."""
+
+    ROADS = "roads"
+    TRAILS = "trails"
+    WATERWAYS = "waterways"
+    LAKES = "lakes"
+
+
 class Bounds(BaseModel):
     """Geographic bounding box in EPSG:4326 (lon/lat degrees)."""
 
@@ -132,6 +141,25 @@ class TraySettings(BaseModel):
     pin_clearance_mm: float = Field(0.15, ge=0.0, le=0.5)
 
 
+class OverlaySettings(BaseModel):
+    """Tier-3: OSM feature overlays draped onto the terrain surface."""
+
+    enabled: bool = False
+    classes: list[OverlayClass] = Field(
+        default_factory=lambda: [OverlayClass.ROADS, OverlayClass.WATERWAYS, OverlayClass.LAKES]
+    )
+    #: How features are rendered: recessed groove, raised ribbon, or flush inlay.
+    render: RenderMode = RenderMode.DEBOSS
+    #: Groove depth / raised height / inlay shell thickness, in mm.
+    relief_mm: float = Field(0.6, gt=0.1, le=3.0)
+    #: Drop any line class whose ribbon would render below this width (mm).
+    min_width_mm: float = Field(1.0, ge=0.4)
+    #: Multiply the per-class real-world widths (roads/trails/waterways).
+    width_scale: float = Field(1.0, gt=0.0, le=20.0)
+    #: Offline alternative to Overpass: a GeoJSON file of features to overlay.
+    geojson_path: str | None = None
+
+
 class BuildVolume(BaseModel):
     """Usable print area.  Default is a conservative Bambu P2S window."""
 
@@ -174,6 +202,7 @@ class GenerateSettings(BaseModel):
     label_depth_mm: float = 0.6
     tray: TraySettings = Field(default_factory=TraySettings)
     magnets: MagnetSettings = Field(default_factory=MagnetSettings)
+    overlays: OverlaySettings = Field(default_factory=OverlaySettings)
     bands: list[ElevationBand] = Field(default_factory=list)
     #: Tier-2 colour: also emit per-band contour slabs as named 3MF objects
     #: (requires ``bands``; the assembled solid is sliced at each band boundary).

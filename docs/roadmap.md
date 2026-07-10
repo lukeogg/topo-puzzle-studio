@@ -24,9 +24,13 @@ Status of the phased plan. ✅ done · 🟡 partial · ⬜ planned.
   blind pockets in each piece bottom). Advanced puzzle styles ✅ (seeded
   organic-tab + faceted voronoi-tab connectors behind the same seam API).
   Tray split-halves with alignment pins when oversized ✅.
-- **Phase 6 — OSM overlays (Tier 3)** ⬜
-  Overpass adapter + GeoJSON upload, drape/buffer, deboss/emboss/inlay, per-piece
-  clipping, connector-safety checks.
+- **Phase 6 — OSM overlays (Tier 3)** ✅
+  Overpass adapter + GeoJSON upload ✅; drape/buffer to model-space ribbons with
+  min-width filtering ✅; deboss/emboss baked into the heightfield + inlay flush
+  ribbons via top-shell CSG ✅; per-piece clipping (grooves baked before the split,
+  inherited at seams) ✅; connector-safety (grooves clamped to the base top, so a
+  shallow top-surface groove can't sever a full-height tab neck) ✅; ODbL
+  attribution ✅. Render mode is global per run; inlay objects are assembled-model.
 - **Phase 7 — land cover (Tier 4)** ⬜
   ESA WorldCover provider + classified-raster upload, class→filament mapping, top-shell
   region splitting, purge-waste guardrails; optional Sentinel-2 NDVI adapter.

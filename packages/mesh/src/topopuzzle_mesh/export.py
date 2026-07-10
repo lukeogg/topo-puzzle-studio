@@ -153,6 +153,12 @@ def attribution_text(result: PuzzleResult) -> str:
         lines.append(f"Data timestamp     : {a.timestamp}")
     if a.text:
         lines += ["", a.text]
+    if result.settings.overlays.enabled:
+        lines += [
+            "",
+            "Map features (roads/trails/waterways/lakes) © OpenStreetMap contributors,",
+            "available under the Open Database License (ODbL). https://www.openstreetmap.org/copyright",
+        ]
     lines += [
         "",
         "Generated models belong to you (see LICENSE, MIT).",
@@ -219,6 +225,7 @@ def readme_text(result: PuzzleResult) -> str:
         "- `coupon.stl` — connector calibration coupon (print this first)\n"
         "- `color-changes.txt` — AMS filament-change Z heights per elevation band\n"
         "- `model-banded.3mf` — per-band contour slabs as named objects (Tier-2 colour, if enabled)\n"
+        "- `model-overlays.3mf` — flush OSM inlay ribbons as named objects (Tier-3, if inlay mode)\n"
         "- `settings.json` — the exact settings used (reproducible)\n"
         "- `validation-report.json` — watertight / build-volume / overhang checks\n"
         "- `attribution.txt` — elevation data source and license\n"
@@ -254,6 +261,16 @@ def package_zip(result: PuzzleResult, report: ValidationReport, out_path: str) -
         if "obj" in s.formats:
             combined = trimesh.util.concatenate([m for _, m in named])
             z.writestr("model.obj", mesh_to_obj_bytes(combined))
+
+        # Tier-3 overlays: flush inlay ribbons as named 3MF objects.
+        if result.overlay_objects:
+            try:
+                z.writestr(
+                    "model-overlays.3mf",
+                    scene_to_3mf_bytes([(name, mesh) for name, mesh, _ in result.overlay_objects]),
+                )
+            except Exception:  # overlay inlays are best-effort colour, never fatal
+                pass
 
         # Tier-2 colour: per-band contour slabs as named 3MF objects.
         if s.contour_bands and s.bands:
