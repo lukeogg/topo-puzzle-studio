@@ -116,6 +116,22 @@ def test_landcover_partitions_each_piece(tmp_path, hill_grid):
         assert abs(total - p.mesh.volume) / p.mesh.volume < 0.03  # partitions the piece
 
 
+def test_cli_landcover_flag(tmp_path, geotiff_path):
+    from typer.testing import CliRunner
+
+    from topopuzzle_mesh.cli import app
+
+    raster = _class_raster(tmp_path)
+    out = tmp_path / "lc.zip"
+    res = CliRunner().invoke(app, [
+        "generate", "--geotiff", geotiff_path, "--rows", "1", "--cols", "1",
+        "--size-mm", "150", "--landcover", "--landcover-raster", raster,
+        "--landcover-map", "10:forest:#2e7d32,30:grass:#c8a165", "--output", str(out),
+    ])
+    assert res.exit_code == 0, res.output
+    assert "model-landcover.3mf" in zipfile.ZipFile(out).namelist()
+
+
 def test_landcover_per_piece_and_export(tmp_path, hill_grid):
     lc = LocalLandCoverProvider(_class_raster(tmp_path)).get_landcover_grid()
     s = GenerateSettings(size_mm=180, rows=2, cols=2, max_grid=100,

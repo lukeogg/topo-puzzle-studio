@@ -255,6 +255,18 @@ def test_cli_tray_flag_adds_tray(geotiff_path, tmp_path):
     assert "tray.stl" in zf.ZipFile(out).namelist()
 
 
+def test_cli_magnets_contour_and_connector_style(geotiff_path, tmp_path):
+    out = tmp_path / "m.zip"
+    res = runner.invoke(app, [
+        "generate", "--geotiff", geotiff_path, "--rows", "2", "--cols", "2",
+        "--size-mm", "150", "--magnets", "--connector", "organic-tab",
+        "--contour-bands", "--band", "0:low:#2e7d32", "--output", str(out),
+    ])
+    assert res.exit_code == 0, res.output
+    names = zipfile.ZipFile(out).namelist()
+    assert "model-banded.3mf" in names
+
+
 def test_cli_calibrate_emits_coupon(tmp_path):
     out = tmp_path / "coupon.stl"
     result = runner.invoke(app, ["calibrate", "--clearance-mm", "0.15", "-o", str(out)])
