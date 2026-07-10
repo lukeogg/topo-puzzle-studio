@@ -151,31 +151,16 @@ def bake_surface_overlays(
     return out
 
 
-def inlay_objects(solid, ribbons: list[Ribbon], relief_mm: float) -> list[tuple[str, object, str]]:
-    """Flush inlay ribbons as (name, mesh, hex) top-shell objects."""
-    from .shell import top_shell
-
-    out: list[tuple[str, object, str]] = []
-    for i, r in enumerate(ribbons):
-        shell = top_shell(solid, r.poly, relief_mm)
-        if shell is None:
-            continue
-        import trimesh
-
-        rgba = _hex_rgba(r.hex)
-        shell.visual = trimesh.visual.ColorVisuals(
-            shell, face_colors=np.tile(rgba, (len(shell.faces), 1))
-        )
-        out.append((f"inlay-{r.osm_class.value}-{i}", shell, r.hex))
-    return out
-
-
 def apply_overlays(terrain, features, settings):
     """Drape ``features`` onto ``terrain``.
 
-    Returns ``(terrain, overlay_objects, warnings)`` where terrain has its
-    heightfield/solid updated (deboss/emboss or inlay groove) and overlay_objects
-    is a list of ``(name, mesh, hex)`` inlay ribbons (empty unless render=inlay).
+    Returns ``(terrain, inlay_regions, warnings)``:
+
+    * deboss / emboss are **baked into the heightfield** (the returned terrain has
+      an updated solid) and ``inlay_regions`` is empty.
+    * inlay leaves the surface unchanged and returns ``inlay_regions`` — a list of
+      ``(name, polygon, hex)`` for per-piece flush top-shell partitioning (a flush
+      inlay is a colour split, not a geometry change).
     """
     import dataclasses
 
@@ -189,25 +174,15 @@ def apply_overlays(terrain, features, settings):
     if not ribbons:
         return terrain, [], warnings
 
-    # Inlay ribbons are cut from the pre-carve surface, then the groove is baked.
-    overlay_objects = (
-        inlay_objects(terrain.mesh, ribbons, ov.relief_mm)
-        if ov.render is RenderMode.INLAY
-        else []
-    )
+    if ov.render is RenderMode.INLAY:
+        regions = [
+            (f"inlay-{r.osm_class.value}-{i}", r.poly, r.hex) for i, r in enumerate(ribbons)
+        ]
+        return terrain, regions, warnings
+
     z2 = bake_surface_overlays(
         terrain.z_mm, terrain.x_mm, terrain.y_mm, ribbons, ov, terrain.base_mm
     )
     new_mesh = heightfield_solid(z2, terrain.x_mm, terrain.y_mm)
     terrain = dataclasses.replace(terrain, mesh=new_mesh, z_mm=z2)
-    return terrain, overlay_objects, warnings
-
-
-def _hex_rgba(hexstr: str) -> tuple[int, int, int, int]:
-    h = (hexstr or "").lstrip("#")
-    if len(h) != 6:
-        return (150, 150, 150, 255)
-    try:
-        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255)
-    except ValueError:
-        return (150, 150, 150, 255)
+    return terrain, [], warnings

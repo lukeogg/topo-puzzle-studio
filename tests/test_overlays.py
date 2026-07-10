@@ -129,13 +129,18 @@ def test_deboss_removes_and_emboss_adds_material(hill_grid):
     assert v_emb.is_watertight and v_emb.volume > base
 
 
-def test_inlay_produces_watertight_named_objects(hill_grid):
+def test_inlay_produces_complete_watertight_partition(hill_grid):
     ov = OverlaySettings(enabled=True, render=RenderMode.INLAY, classes=[OverlayClass.LAKES], relief_mm=0.6)
     res = split_puzzle(hill_grid, _solid(overlays=ov), features=[LAKE])
-    assert len(res.overlay_objects) >= 1
+    names = [n for n, _, _ in res.overlay_objects]
+    assert any("inlay-lakes" in n for n in names)  # a flush inlay ribbon
+    assert any(n.endswith("-base") for n in names)  # and the base body (complete)
     for name, mesh, hexc in res.overlay_objects:
-        assert name.startswith("inlay-lakes")
-        assert mesh.is_watertight and mesh.volume > 0
+        assert mesh.is_watertight and mesh.volume > 0, name
+    # base + inlay partition the whole piece (flush, no missing/overlapping volume).
+    piece_vol = split_puzzle(hill_grid, _solid()).pieces[0].mesh.volume
+    total = sum(m.volume for _, m, _ in res.overlay_objects)
+    assert abs(total - piece_vol) / piece_vol < 0.02
 
 
 def test_overlays_clip_per_piece_and_stay_watertight(hill_grid):

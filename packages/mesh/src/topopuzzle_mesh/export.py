@@ -18,8 +18,6 @@ from shapely.geometry import box
 from . import connectors
 from .color import color_changes_text
 from .config import AssemblyMode, ConnectorStyle, GenerateSettings
-from .labels import emboss_label
-from .magnets import add_magnet_pockets
 from .puzzle import PuzzleResult
 from .validate import ValidationReport
 
@@ -37,29 +35,12 @@ def _to_origin(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
 
 
 def finalize_pieces(result: PuzzleResult) -> list[tuple[str, trimesh.Trimesh]]:
-    """Return (label, assembled-mesh) with underside labels and magnet pockets
-    applied if enabled."""
-    s = result.settings
-    out = []
-    for p in result.pieces:
-        mesh = p.mesh
-        if s.labels and not s.is_solid:
-            try:
-                mesh = emboss_label(
-                    mesh, p.label, depth_mm=s.label_depth_mm,
-                    height_mm=max(6.0, min(p.mesh.extents[0], p.mesh.extents[1]) * 0.25),
-                )
-            except Exception:  # labelling is best-effort; never fail the export
-                mesh = p.mesh
-        if s.magnets.enabled:
-            try:
-                mesh, warn = add_magnet_pockets(mesh, p.fit_footprint, s.magnets, s.base_mm)
-                if warn and warn not in result.warnings:
-                    result.warnings.append(warn)
-            except Exception:  # magnet pockets are best-effort; never fail the export
-                pass
-        out.append((p.label, mesh))
-    return out
+    """Return (label, mesh) for each piece.
+
+    Labels and magnet pockets are already baked into ``piece.mesh`` by
+    ``split_puzzle`` (so validation covers them); this is now just a projection.
+    """
+    return [(p.label, p.mesh) for p in result.pieces]
 
 
 # --------------------------------------------------------------------------- #
@@ -267,53 +248,20 @@ def package_zip(result: PuzzleResult, report: ValidationReport, out_path: str) -
             combined = trimesh.util.concatenate([m for _, m in named])
             z.writestr("model.obj", mesh_to_obj_bytes(combined))
 
-        # Tier-3 overlays: flush inlay ribbons as named 3MF objects.
-        if result.overlay_objects:
-            try:
-                z.writestr(
-                    "model-overlays.3mf",
-                    scene_to_3mf_bytes([(name, mesh) for name, mesh, _ in result.overlay_objects]),
-                )
-            except Exception:  # overlay inlays are best-effort colour, never fatal
-                pass
+        # Colour objects were built and validated in split_puzzle — here we just
+        # serialize. Each 3MF is a complete, per-piece partition (base + colour).
+        colour_files = [
+            ("model-banded.3mf", result.banded_objects),
+            ("model-overlays.3mf", result.overlay_objects),
+            ("model-landcover.3mf", result.landcover_objects),
+        ]
+        for fname, objs in colour_files:
+            if objs:
+                z.writestr(fname, scene_to_3mf_bytes([(name, mesh) for name, mesh, _ in objs]))
 
-        # Tier-4 colour: land-cover top-shell regions as named 3MF objects.
-        if result.landcover_objects:
-            try:
-                z.writestr(
-                    "model-landcover.3mf",
-                    scene_to_3mf_bytes([(name, mesh) for name, mesh, _ in result.landcover_objects]),
-                )
-            except Exception:  # land-cover colour is best-effort, never fatal
-                pass
-
-        # Tier-2 colour: per-band contour slabs as named 3MF objects.
-        if s.contour_bands and s.bands:
-            try:
-                from .contour import contour_band_meshes
-
-                slabs = contour_band_meshes(result.terrain, s)
-                if slabs:
-                    z.writestr(
-                        "model-banded.3mf",
-                        scene_to_3mf_bytes([(name, mesh) for name, mesh, _ in slabs]),
-                    )
-            except Exception:  # contour banding is best-effort colour, never fatal
-                pass
-
-        # Optional display tray/frame — split into pinned halves if oversized.
-        if s.tray.enabled:
-            try:
-                from .tray import split_tray
-
-                parts, tray_warnings = split_tray(result.terrain, s)
-                for name, mesh in parts:
-                    z.writestr(f"{name}.stl", mesh_to_stl_bytes(mesh))
-                for w in tray_warnings:
-                    if w not in result.warnings:
-                        result.warnings.append(w)
-            except Exception:  # tray is best-effort; never fail the whole export
-                pass
+        # Tray part(s) (single tray, or pinned halves when oversized).
+        for name, mesh in result.tray_parts:
+            z.writestr(f"{name}.stl", mesh_to_stl_bytes(mesh))
 
         z.writestr("coupon.stl", mesh_to_stl_bytes(calibration_coupon(s)))
         z.writestr("color-changes.txt", color_changes_text(result.terrain, s))

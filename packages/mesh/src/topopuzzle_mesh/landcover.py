@@ -118,13 +118,13 @@ def _class_region(mask: np.ndarray, x_mm: np.ndarray, y_mm: np.ndarray, width_mm
     return unary_union(polys)
 
 
-def apply_landcover(terrain, landcover: LandCoverGrid, settings):
-    """Return ``(objects, warnings, attribution)`` for land-cover colouring.
+def landcover_regions(terrain, landcover: LandCoverGrid, settings):
+    """Return ``(regions, warnings, attribution)`` for land-cover colouring.
 
-    ``objects`` is a list of ``(name, mesh, hex)`` top-shell region meshes.
+    ``regions`` is a list of ``(name, polygon, hex)`` in model coords, one per
+    mapped class; per-piece top-shell meshing is done by the caller so regions are
+    clipped to each puzzle piece.
     """
-    from .shell import top_shell
-
     lc = settings.landcover
     legend = landcover.legend or dict(WORLDCOVER_LEGEND)
     classes = resample_classes_to_mesh(landcover, terrain)
@@ -134,10 +134,8 @@ def apply_landcover(terrain, landcover: LandCoverGrid, settings):
     classes = purge_filter(classes, dx * dy, lc.min_region_mm2, landcover.nodata)
 
     mapping = _mapping(classes, lc, legend, landcover.nodata)
-    objects: list[tuple[str, object, str]] = []
+    regions: list[tuple[str, object, str]] = []
     region_count = 0
-    import trimesh
-
     for code, (name, hexc) in mapping.items():
         mask = classes == code
         if not mask.any():
@@ -145,17 +143,12 @@ def apply_landcover(terrain, landcover: LandCoverGrid, settings):
         region = _class_region(mask, terrain.x_mm, terrain.y_mm, terrain.width_mm, terrain.height_mm)
         if region is None:
             continue
-        shell = top_shell(terrain.mesh, region, lc.shell_mm)
-        if shell is None:
-            continue
         region_count += len(getattr(region, "geoms", [region]))
-        rgba = _hex_rgba(hexc)
-        shell.visual = trimesh.visual.ColorVisuals(shell, face_colors=np.tile(rgba, (len(shell.faces), 1)))
         slug = name.replace(" ", "-").replace("/", "")
-        objects.append((f"landcover-{slug}-{code}", shell, hexc))
+        regions.append((f"{slug}-{code}", region, hexc))
 
     warnings: list[str] = []
-    k = len(objects)
+    k = len(regions)
     if k:
         warnings.append(
             f"land cover: {k} filament class(es) across {region_count} region(s) in the "
@@ -167,14 +160,4 @@ def apply_landcover(terrain, landcover: LandCoverGrid, settings):
                 f"land cover: {region_count} disjoint regions — heavy purge waste/print time; "
                 "raise min_region_mm2 or reduce classes."
             )
-    return objects, warnings, landcover.attribution
-
-
-def _hex_rgba(hexstr: str) -> tuple[int, int, int, int]:
-    h = (hexstr or "").lstrip("#")
-    if len(h) != 6:
-        return (150, 150, 150, 255)
-    try:
-        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255)
-    except ValueError:
-        return (150, 150, 150, 255)
+    return regions, warnings, landcover.attribution

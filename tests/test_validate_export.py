@@ -8,8 +8,8 @@ import zipfile
 
 import trimesh
 
-from topopuzzle_mesh.config import AssemblyMode, GenerateSettings
-from topopuzzle_mesh.export import calibration_coupon, package_zip
+from topopuzzle_mesh.config import AssemblyMode, GenerateSettings, MagnetSettings
+from topopuzzle_mesh.export import calibration_coupon, finalize_pieces, package_zip
 from topopuzzle_mesh.pipeline import generate
 from topopuzzle_mesh.puzzle import split_puzzle
 from topopuzzle_mesh.validate import validate
@@ -259,6 +259,29 @@ def test_magnet_pockets_applied_in_export(hill_grid, base_settings):
     for n in piece_stls:
         m = trimesh.load(io.BytesIO(z.read(n)), file_type="stl")
         assert m.is_watertight, n
+
+
+def test_validation_covers_exported_meshes_with_magnets(hill_grid, base_settings):
+    """Magnets are baked before validation, so the validated meshes are the ones
+    that ship (the repo invariant), and the pockets actually remove material."""
+    s = base_settings.model_copy(update={"rows": 2, "cols": 2, "magnets": MagnetSettings(enabled=True)})
+    out = generate(s, grid=hill_grid)
+    assert not out.report.has_errors
+    assert all(p.mesh.is_watertight for p in out.result.pieces)
+    # The STL that ships is exactly the validated piece mesh — no later surgery.
+    assert all(m.is_watertight and m.volume > 0 for _, m in finalize_pieces(out.result))
+    v = sum(p.mesh.volume for p in out.result.pieces)
+    v0 = sum(p.mesh.volume for p in generate(
+        base_settings.model_copy(update={"rows": 2, "cols": 2}), grid=hill_grid).result.pieces)
+    assert v < v0  # pockets removed material, and validation saw it
+
+
+def test_colour_objects_are_validated(hill_grid, base_settings):
+    _, s = _banded_settings(hill_grid, base_settings)  # contour bands enabled
+    out = generate(s, grid=hill_grid)
+    names = {c.name for c in out.report.checks}
+    assert "color_objects" in names
+    assert not out.report.has_errors
 
 
 def test_3mf_named_objects_and_units(hill_grid, base_settings):

@@ -95,7 +95,25 @@ def test_explicit_mapping_selects_only_mapped_classes(tmp_path, hill_grid):
     s = GenerateSettings(size_mm=180, rows=1, cols=1, max_grid=100, landcover=ls)
     res = split_puzzle(hill_grid, s, landcover=lc)
     names = [n for n, _, _ in res.landcover_objects]
-    assert names and all("forest" in n for n in names)  # only class 10 mapped
+    assert any("forest" in n for n in names)  # class 10 is mapped
+    assert not any("grass" in n for n in names)  # class 30 is not
+    assert any(n.endswith("-base") for n in names)  # base body keeps it complete
+
+
+def test_landcover_partitions_each_piece(tmp_path, hill_grid):
+    lc = LocalLandCoverProvider(_class_raster(tmp_path)).get_landcover_grid()
+    s = GenerateSettings(size_mm=180, rows=2, cols=2, max_grid=100,
+                         landcover=LandCoverSettings(enabled=True))
+    res = split_puzzle(hill_grid, s, landcover=lc)
+    by_label: dict[str, list] = {}
+    for name, mesh, _ in res.landcover_objects:
+        by_label.setdefault(name.split("-")[0], []).append((name, mesh))
+    assert len(by_label) == 4  # one group per piece
+    for p in res.pieces:
+        objs = by_label[p.label]
+        assert any(n.endswith("-base") for n, _ in objs)  # complete base body
+        total = sum(m.volume for _, m in objs)
+        assert abs(total - p.mesh.volume) / p.mesh.volume < 0.03  # partitions the piece
 
 
 def test_landcover_per_piece_and_export(tmp_path, hill_grid):

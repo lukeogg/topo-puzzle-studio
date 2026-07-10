@@ -106,6 +106,27 @@ def validate(result: PuzzleResult) -> ValidationReport:
     neg_vol = [p.label for p in result.pieces if p.mesh.volume <= 0]
     rep.add("volume", not neg_vol, "positive solid volume" if not neg_vol else f"non-positive volume: {neg_vol}", ERROR)
 
+    # --- exported colour objects (contour / inlay / land-cover) ---
+    color_objs = result.color_objects
+    if color_objs:
+        bad = [name for name, m, _ in color_objs if not m.is_watertight or m.volume <= 0]
+        rep.add(
+            "color_objects",
+            not bad,
+            f"{len(color_objs)} colour objects watertight" if not bad else f"invalid colour objects: {bad}",
+            ERROR,
+        )
+
+    # --- exported tray part(s) ---
+    if result.tray_parts:
+        bad_tray = [name for name, m in result.tray_parts if not m.is_watertight or m.volume <= 0]
+        rep.add(
+            "tray_watertight",
+            not bad_tray,
+            f"{len(result.tray_parts)} tray part(s) watertight" if not bad_tray else f"invalid tray part(s): {bad_tray}",
+            ERROR,
+        )
+
     # --- minimum feature width at physical scale ---
     if not s.is_solid and s.connector.style is not ConnectorStyle.NONE:
         W, H = result.assembled_footprint_mm
