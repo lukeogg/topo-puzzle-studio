@@ -168,6 +168,49 @@ def test_no_banded_3mf_without_flag(hill_grid, base_settings):
     assert "model-banded.3mf" not in zipfile.ZipFile("/tmp/_test_nobanded.zip").namelist()
 
 
+def test_magnet_pocket_recesses_and_stays_watertight(hill_grid, base_settings):
+    from topopuzzle_mesh.config import MagnetSettings
+    from topopuzzle_mesh.magnets import add_magnet_pockets
+
+    res = split_puzzle(hill_grid, base_settings.model_copy(update={"rows": 2, "cols": 2, "max_grid": 100}))
+    p = res.pieces[0]
+    mag = MagnetSettings(enabled=True, diameter_mm=6.0, depth_mm=2.0)
+    out, warn = add_magnet_pockets(p.mesh, p.fit_footprint, mag, base_settings.base_mm)
+    assert warn is None
+    assert out.is_watertight and out.volume > 0
+    removed = p.mesh.volume - out.volume
+    ideal = 3.14159 * (3.0**2) * 2.0  # pi r^2 depth
+    assert removed > ideal * 0.5  # a real pocket of roughly the right size was cut
+
+
+def test_magnet_pocket_skipped_when_piece_too_small():
+    import trimesh as tm
+    from shapely.geometry import box as sbox
+
+    from topopuzzle_mesh.config import MagnetSettings
+
+    from topopuzzle_mesh.magnets import add_magnet_pockets
+
+    mesh = tm.creation.box(extents=(5, 5, 3))
+    mag = MagnetSettings(enabled=True, diameter_mm=6.0, margin_mm=2.0)
+    out, warn = add_magnet_pockets(mesh, sbox(0, 0, 5, 5), mag, 3.0)
+    assert warn is not None and "too small" in warn
+    assert out is mesh  # unchanged
+
+
+def test_magnet_pockets_applied_in_export(hill_grid, base_settings):
+    s = base_settings.model_copy(update={"rows": 2, "cols": 2})
+    s.magnets.enabled = True
+    out = generate(s, grid=hill_grid)
+    package_zip(out.result, out.report, "/tmp/_test_magnets.zip")
+    z = zipfile.ZipFile("/tmp/_test_magnets.zip")
+    piece_stls = [n for n in z.namelist() if n.endswith(".stl") and n not in ("coupon.stl", "combined.stl")]
+    assert len(piece_stls) == 4
+    for n in piece_stls:
+        m = trimesh.load(io.BytesIO(z.read(n)), file_type="stl")
+        assert m.is_watertight, n
+
+
 def test_3mf_named_objects_and_units(hill_grid, base_settings):
     out = generate(base_settings.model_copy(update={"rows": 2, "cols": 2, "formats": ["3mf"]}), grid=hill_grid)
     buf = "/tmp/_test_pkg3.zip"

@@ -94,6 +94,21 @@ class ElevationBand(BaseModel):
     hex: str | None = None
 
 
+class MagnetSettings(BaseModel):
+    """Cylindrical magnet pockets recessed into a piece's flat bottom.
+
+    The pocket opens at the bottom face (magnet inserted from below) and stops
+    inside the base slab, so it never breaches the terrain surface.  Intended to
+    seat the finished model/pieces on a ferrous base or tray.
+    """
+
+    enabled: bool = False
+    diameter_mm: float = Field(6.0, gt=1.0, le=30.0)
+    depth_mm: float = Field(2.0, gt=0.4, le=20.0)
+    #: Minimum wall left between the pocket and the piece edge, per side.
+    margin_mm: float = Field(2.0, ge=0.5)
+
+
 class TraySettings(BaseModel):
     enabled: bool = False
     wall_mm: float = Field(4.0, gt=1.0)
@@ -143,6 +158,7 @@ class GenerateSettings(BaseModel):
     labels: bool = False
     label_depth_mm: float = 0.6
     tray: TraySettings = Field(default_factory=TraySettings)
+    magnets: MagnetSettings = Field(default_factory=MagnetSettings)
     bands: list[ElevationBand] = Field(default_factory=list)
     #: Tier-2 colour: also emit per-band contour slabs as named 3MF objects
     #: (requires ``bands``; the assembled solid is sliced at each band boundary).

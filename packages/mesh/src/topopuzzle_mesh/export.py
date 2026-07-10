@@ -19,6 +19,7 @@ from . import connectors
 from .color import color_changes_text
 from .config import AssemblyMode, ConnectorStyle, GenerateSettings
 from .labels import emboss_label
+from .magnets import add_magnet_pockets
 from .puzzle import PuzzleResult
 from .validate import ValidationReport
 
@@ -36,18 +37,27 @@ def _to_origin(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
 
 
 def finalize_pieces(result: PuzzleResult) -> list[tuple[str, trimesh.Trimesh]]:
-    """Return (label, assembled-mesh) with underside labels applied if enabled."""
+    """Return (label, assembled-mesh) with underside labels and magnet pockets
+    applied if enabled."""
+    s = result.settings
     out = []
     for p in result.pieces:
         mesh = p.mesh
-        if result.settings.labels and not result.settings.is_solid:
+        if s.labels and not s.is_solid:
             try:
                 mesh = emboss_label(
-                    mesh, p.label, depth_mm=result.settings.label_depth_mm,
+                    mesh, p.label, depth_mm=s.label_depth_mm,
                     height_mm=max(6.0, min(p.mesh.extents[0], p.mesh.extents[1]) * 0.25),
                 )
             except Exception:  # labelling is best-effort; never fail the export
                 mesh = p.mesh
+        if s.magnets.enabled:
+            try:
+                mesh, warn = add_magnet_pockets(mesh, p.fit_footprint, s.magnets, s.base_mm)
+                if warn and warn not in result.warnings:
+                    result.warnings.append(warn)
+            except Exception:  # magnet pockets are best-effort; never fail the export
+                pass
         out.append((p.label, mesh))
     return out
 
@@ -183,6 +193,14 @@ def print_notes_text(result: PuzzleResult) -> str:
             f"- Separate pieces, connector clearance {s.connector.clearance_mm} mm per side.",
             "- Print pieces individually or several per plate; assign a filament per piece for colour.",
             "- **Print coupon.stl first** to confirm the tab/socket fit at your clearance.",
+        ]
+    if s.magnets.enabled:
+        lines += [
+            "",
+            "## Magnets",
+            f"- {s.magnets.diameter_mm:g} × {s.magnets.depth_mm:g} mm blind pockets in each piece bottom;",
+            "  press a magnet into each after printing to seat pieces on a ferrous base/tray.",
+            "- Pocket ceilings print as short bridges — no supports needed.",
         ]
     lines += ["", "## Calibration coupon", "coupon.stl reproduces one tab + one socket at the exact",
               "connector geometry and clearance/gap above. Adjust clearance and regenerate if the fit is off.", ""]
