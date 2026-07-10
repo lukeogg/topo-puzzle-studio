@@ -108,7 +108,11 @@ See its [README](packages/mesh/README.md) for the module map.
 |----------|------|-------|
 | Local GeoTIFF | — | fully offline MVP path |
 | AWS/Mapzen Terrain Tiles | — | global online default; upstream sources: SRTM, 3DEP, ETOPO1, GMTED2010, … |
-| USGS 3DEP, OpenTopography, OpenTopoData | later | see [docs/providers.md](docs/providers.md) |
+| USGS 3DEP | — | U.S., high-res (The National Map ImageServer) |
+| OpenTopoData | — | small-area / preview (point-lookup, capped) |
+| OpenTopography | yes | global (`OPENTOPOGRAPHY_API_KEY`); SRTMGL1/AW3D30/COP30/NASADEM |
+
+All providers above are implemented; see [docs/providers.md](docs/providers.md).
 
 Map tiles and elevation data are **separate concerns**. The map UI uses a
 configurable tile style (`NEXT_PUBLIC_MAP_STYLE`) and never hardcodes public OSM

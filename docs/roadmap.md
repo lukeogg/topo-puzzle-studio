@@ -30,13 +30,15 @@ Status of the phased plan. ✅ done · 🟡 partial · ⬜ planned.
   ribbons via top-shell CSG ✅; per-piece clipping (grooves baked before the split,
   inherited at seams) ✅; connector-safety (grooves clamped to the base top, so a
   shallow top-surface groove can't sever a full-height tab neck) ✅; ODbL
-  attribution ✅. Render mode is global per run; inlay objects are assembled-model.
+  attribution ✅. Inlay ribbons + base are partitioned **per piece** (complete,
+  non-overlapping) and validated. Render mode is global per run.
 - **Phase 7 — land cover (Tier 4)** ✅
   ESA WorldCover provider (S3 COG, no key) ✅ + local classified-raster upload ✅;
   class→filament mapping (explicit or auto top-N) ✅; top ~0.8 mm shell region
-  splitting into named 3MF objects ✅; purge-waste guardrails (min-region drop +
-  colour-change/region warnings) ✅; CC BY 4.0 attribution ✅. Optional Sentinel-2
-  NDVI adapter ⬜ (explicitly optional in the spec).
+  splitting into named 3MF objects ✅; **per-piece** region clipping with a base
+  body so each colour 3MF is a complete, non-overlapping printable model ✅;
+  purge-waste guardrails (min-region drop + colour-change/region warnings) ✅;
+  CC BY 4.0 attribution ✅. Optional Sentinel-2 NDVI adapter ⬜ (optional in the spec).
 
 ## Near-term next steps
 
