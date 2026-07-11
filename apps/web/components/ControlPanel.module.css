@@ -142,6 +142,39 @@
 .dropIcon {
   color: var(--orange);
 }
+.textarea {
+  width: 100%;
+  margin-top: 8px;
+  min-height: 60px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.chip {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-soft);
+  font-size: 11px;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+.chip:hover {
+  border-color: var(--green);
+}
+.chipOn {
+  background: var(--green, #2f7d55);
+  border-color: var(--green, #2f7d55);
+  color: #fff;
+}
 .hiddenFile {
   display: none;
 }

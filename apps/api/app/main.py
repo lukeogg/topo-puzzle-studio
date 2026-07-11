@@ -35,30 +35,53 @@ def health() -> dict:
 
 
 @app.post("/api/uploads")
-async def upload_geotiff(file: UploadFile = File(...)) -> dict:
-    """Store an uploaded GeoTIFF and return an id to reference in a job."""
+async def upload_file(file: UploadFile = File(...)) -> dict:
+    """Store an uploaded file (GeoTIFF DEM, classified raster, or GeoJSON) and
+    return an id to reference in a job.  The original suffix is preserved so
+    rasterio/JSON loaders see the extension they expect."""
     upload_id = uuid.uuid4().hex[:12]
-    dest = Path(tempfile.gettempdir()) / f"tpz-upload-{upload_id}.tif"
+    suffix = Path(file.filename or "").suffix or ".bin"
+    dest = Path(tempfile.gettempdir()) / f"tpz-upload-{upload_id}{suffix}"
     with open(dest, "wb") as f:
         f.write(await file.read())
     _UPLOADS[upload_id] = str(dest)
     return {"upload_id": upload_id}
 
 
+def _resolve_upload(value: str | None) -> str | None:
+    """Map an upload id to its stored path (pass through absolute paths)."""
+    if not value:
+        return value
+    return _UPLOADS.get(value, value)
+
+
 @app.post("/api/jobs")
 def create_job(settings: GenerateSettings) -> dict:
-    """Start a generation job.  For the geotiff provider, ``geotiff_path`` may be
-    an upload id returned by /api/uploads or an absolute path."""
+    """Start a generation job.  ``geotiff_path`` / overlay GeoJSON / land-cover
+    raster may each be an upload id returned by /api/uploads or an absolute path."""
     grid = None
     if settings.provider == "geotiff":
-        path = settings.geotiff_path or ""
-        path = _UPLOADS.get(path, path)
+        path = _resolve_upload(settings.geotiff_path)
         if not path or not Path(path).exists():
             raise HTTPException(400, "geotiff provider requires a valid upload_id or path")
         settings = settings.model_copy(update={"geotiff_path": path})
         grid = LocalGeoTIFFProvider(path).get_elevation_grid(settings.bounds)
     elif settings.bounds is None:
         raise HTTPException(400, "bounds are required for network providers")
+
+    # Resolve overlay / land-cover upload ids to stored paths.
+    if settings.overlays.geojson_path:
+        settings = settings.model_copy(update={
+            "overlays": settings.overlays.model_copy(
+                update={"geojson_path": _resolve_upload(settings.overlays.geojson_path)}
+            )
+        })
+    if settings.landcover.raster_path:
+        settings = settings.model_copy(update={
+            "landcover": settings.landcover.model_copy(
+                update={"raster_path": _resolve_upload(settings.landcover.raster_path)}
+            )
+        })
 
     job = manager.create(settings, grid=grid)
     return {"job_id": job.id}

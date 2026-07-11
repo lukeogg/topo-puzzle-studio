@@ -1,4 +1,38 @@
-import type { GeocodeResult, JobRequest, JobState } from "./types";
+import type {
+  ElevationBand,
+  GeocodeResult,
+  JobRequest,
+  JobState,
+  LandCoverClass,
+} from "./types";
+
+/** Parse a textarea of "min_m:name:hex" lines into elevation bands. */
+export function parseBands(text: string): ElevationBand[] {
+  const out: ElevationBand[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const [min, name, hex] = line.split(":");
+    const min_m = parseFloat(min);
+    if (Number.isNaN(min_m) || !name) continue;
+    out.push({ min_m, name: name.trim(), hex: hex?.trim() || null });
+  }
+  return out;
+}
+
+/** Parse a textarea of "code:name:hex" lines into a land-cover class mapping. */
+export function parseLandCoverMap(text: string): LandCoverClass[] {
+  const out: LandCoverClass[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const [code, name, hex] = line.split(":");
+    const c = parseInt(code, 10);
+    if (Number.isNaN(c)) continue;
+    out.push({ code: c, name: name?.trim() || "", hex: hex?.trim() || null });
+  }
+  return out;
+}
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://localhost:8000";
@@ -47,8 +81,8 @@ export async function createJob(body: JobRequest): Promise<string> {
   return data.job_id;
 }
 
-/** Upload a local GeoTIFF. Returns the upload id to use as geotiff_path. */
-export async function uploadGeotiff(file: File): Promise<string> {
+/** Upload a file (GeoTIFF DEM, classified raster, or GeoJSON). Returns the upload id. */
+export async function uploadFile(file: File): Promise<string> {
   const form = new FormData();
   form.append("file", file);
   const res = await fetch(`${API_BASE}/api/uploads`, {
@@ -61,6 +95,9 @@ export async function uploadGeotiff(file: File): Promise<string> {
   const data = (await res.json()) as { upload_id: string };
   return data.upload_id;
 }
+
+/** Back-compat alias — the upload endpoint is now generic. */
+export const uploadGeotiff = uploadFile;
 
 /** Poll fallback for a job's current state. */
 export async function getJob(id: string): Promise<JobState> {
@@ -157,6 +194,7 @@ export function buildJobRequest(config: {
   cols: number;
   assembly: JobRequest["assembly"];
   gapMm: number;
+  connectorStyle: NonNullable<JobRequest["connector"]>["style"];
   maxGrid: number;
   smoothingOn: boolean;
   smoothingSigma: number;
@@ -164,6 +202,21 @@ export function buildJobRequest(config: {
   waterOn: boolean;
   waterThreshold: number;
   tray: boolean;
+  traySplit: boolean;
+  magnetsOn: boolean;
+  magnetDiameterMm: number;
+  magnetDepthMm: number;
+  contourBandsOn: boolean;
+  bandsText: string;
+  overlaysOn: boolean;
+  overlayClasses: NonNullable<JobRequest["overlays"]>["classes"];
+  overlayRender: NonNullable<JobRequest["overlays"]>["render"];
+  overlayWidthScale: number;
+  overlayGeojsonPath: string | null;
+  landcoverOn: boolean;
+  landcoverRasterPath: string | null;
+  landcoverMapText: string;
+  landcoverShellMm: number;
   formats: string[];
 }): JobRequest {
   const req: JobRequest = {
@@ -175,6 +228,7 @@ export function buildJobRequest(config: {
     cols: config.cols,
     assembly: config.assembly,
     gap_mm: config.gapMm,
+    connector: { style: config.connectorStyle },
     max_grid: config.maxGrid,
     smoothing_sigma: config.smoothingOn ? config.smoothingSigma : 0,
     labels: config.labels,
@@ -191,9 +245,38 @@ export function buildJobRequest(config: {
   if (config.provider === "geotiff" && config.geotiffPath) {
     req.geotiff_path = config.geotiffPath;
   }
-  // Tray maps to the backend's TraySettings object; only send when enabled.
   if (config.tray) {
-    req.tray = { enabled: true };
+    req.tray = { enabled: true, split_oversize: config.traySplit };
+  }
+  if (config.magnetsOn) {
+    req.magnets = {
+      enabled: true,
+      diameter_mm: config.magnetDiameterMm,
+      depth_mm: config.magnetDepthMm,
+    };
+  }
+  // Tier-2: contour bands need at least one band to slice.
+  const bands = parseBands(config.bandsText);
+  if (bands.length) req.bands = bands;
+  if (config.contourBandsOn && bands.length) req.contour_bands = true;
+  // Tier-3: overlays. Without a GeoJSON upload the backend fetches Overpass.
+  if (config.overlaysOn && config.overlayClasses.length) {
+    req.overlays = {
+      enabled: true,
+      classes: config.overlayClasses,
+      render: config.overlayRender,
+      width_scale: config.overlayWidthScale,
+      geojson_path: config.overlayGeojsonPath || null,
+    };
+  }
+  // Tier-4: land cover. Without a raster upload the backend fetches WorldCover.
+  if (config.landcoverOn) {
+    req.landcover = {
+      enabled: true,
+      raster_path: config.landcoverRasterPath || null,
+      mapping: parseLandCoverMap(config.landcoverMapText),
+      shell_mm: config.landcoverShellMm,
+    };
   }
   return req;
 }

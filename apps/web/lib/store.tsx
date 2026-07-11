@@ -13,6 +13,7 @@ import {
   buildJobRequest,
   createJob,
   subscribeJob,
+  uploadFile,
   uploadGeotiff,
 } from "./api";
 import { boundsFromCenter } from "./geo";
@@ -44,6 +45,7 @@ const DEFAULT_CONFIG: Config = {
   cols: 3,
   assembly: "separate-pieces",
   gapMm: 0.4,
+  connectorStyle: "rounded-tab",
   zExaggeration: 1.8,
   baseMm: 3.0,
   maxGrid: 400,
@@ -53,6 +55,23 @@ const DEFAULT_CONFIG: Config = {
   waterOn: false,
   waterThreshold: 5,
   tray: false,
+  traySplit: true,
+  magnetsOn: false,
+  magnetDiameterMm: 6,
+  magnetDepthMm: 2,
+  contourBandsOn: false,
+  bandsText: "",
+  overlaysOn: false,
+  overlayClasses: ["roads", "waterways", "lakes"],
+  overlayRender: "deboss",
+  overlayWidthScale: 1,
+  overlayGeojsonPath: null,
+  overlayGeojsonName: null,
+  landcoverOn: false,
+  landcoverRasterPath: null,
+  landcoverRasterName: null,
+  landcoverMapText: "",
+  landcoverShellMm: 0.8,
   formats: { stl: true, combinedStl: false, obj: false, threeMf: true },
 };
 
@@ -187,6 +206,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         cols: cfg.cols,
         assembly: cfg.assembly,
         gapMm: cfg.gapMm,
+        connectorStyle: cfg.connectorStyle,
         maxGrid: cfg.maxGrid,
         smoothingOn: cfg.smoothingOn,
         smoothingSigma: cfg.smoothingSigma,
@@ -194,6 +214,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         waterOn: cfg.waterOn,
         waterThreshold: cfg.waterThreshold,
         tray: cfg.tray,
+        traySplit: cfg.traySplit,
+        magnetsOn: cfg.magnetsOn,
+        magnetDiameterMm: cfg.magnetDiameterMm,
+        magnetDepthMm: cfg.magnetDepthMm,
+        contourBandsOn: cfg.contourBandsOn,
+        bandsText: cfg.bandsText,
+        overlaysOn: cfg.overlaysOn,
+        overlayClasses: cfg.overlayClasses,
+        overlayRender: cfg.overlayRender,
+        overlayWidthScale: cfg.overlayWidthScale,
+        overlayGeojsonPath: cfg.overlayGeojsonPath,
+        landcoverOn: cfg.landcoverOn,
+        landcoverRasterPath: cfg.landcoverRasterPath,
+        landcoverMapText: cfg.landcoverMapText,
+        landcoverShellMm: cfg.landcoverShellMm,
         formats,
       });
 
@@ -270,4 +305,4 @@ export function useStore(): StoreValue {
   return ctx;
 }
 
-export { uploadGeotiff };
+export { uploadGeotiff, uploadFile };
