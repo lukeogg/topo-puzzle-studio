@@ -1,13 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useStore, uploadGeotiff } from "@/lib/store";
+import { useStore, uploadFile, uploadGeotiff } from "@/lib/store";
 import { geocode } from "@/lib/api";
 import { boundsFromCenterSize, boundsMeters } from "@/lib/geo";
-import type { GeocodeResult } from "@/lib/types";
+import type { GeocodeResult, OverlayClass } from "@/lib/types";
 import { SectionLabel } from "./ui/SectionLabel";
 import { Toggle } from "./ui/Toggle";
 import styles from "./ControlPanel.module.css";
+
+const CONNECTOR_STYLES: { value: string; label: string }[] = [
+  { value: "rounded-tab", label: "Rounded knob" },
+  { value: "straight-tab", label: "Straight tab (PIP-safe)" },
+  { value: "organic-tab", label: "Organic (seeded)" },
+  { value: "voronoi-tab", label: "Voronoi (faceted)" },
+];
+const OVERLAY_CLASSES: OverlayClass[] = ["roads", "trails", "waterways", "lakes"];
 
 const LAYOUTS: { key: string; label: string; rows: number; cols: number }[] = [
   { key: "none", label: "none", rows: 1, cols: 1 },
@@ -124,6 +132,41 @@ export function ControlPanel() {
     }
   };
 
+  const [featuresOpen, setFeaturesOpen] = useState(false);
+  const geojsonRef = useRef<HTMLInputElement>(null);
+  const rasterRef = useRef<HTMLInputElement>(null);
+
+  const onGeojsonFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setConfig({ overlayGeojsonName: file.name });
+    try {
+      setConfig({ overlayGeojsonPath: await uploadFile(file) });
+    } catch {
+      setConfig({ overlayGeojsonPath: null });
+    }
+  };
+
+  const onRasterFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setConfig({ landcoverRasterName: file.name });
+    try {
+      setConfig({ landcoverRasterPath: await uploadFile(file) });
+    } catch {
+      setConfig({ landcoverRasterPath: null });
+    }
+  };
+
+  const toggleOverlayClass = (c: OverlayClass) => {
+    const has = config.overlayClasses.includes(c);
+    setConfig({
+      overlayClasses: has
+        ? config.overlayClasses.filter((x) => x !== c)
+        : [...config.overlayClasses, c],
+    });
+  };
+
   return (
     <div className={styles.panel}>
       <div className={styles.scroll}>
@@ -181,6 +224,11 @@ export function ControlPanel() {
                     >
                       <span className={styles.resultName}>{r.name}</span>
                       <span className={styles.resultCoord}>
+                        {r.kind ? (
+                          <span className={styles.resultKind}>
+                            {r.kind.replace(/_/g, " ")}
+                          </span>
+                        ) : null}
                         {r.lat.toFixed(3)}, {r.lon.toFixed(3)}
                       </span>
                     </button>
@@ -229,6 +277,8 @@ export function ControlPanel() {
             }
           >
             <option value="terrain-tiles">Terrain Tiles (global)</option>
+            <option value="usgs-3dep">USGS 3DEP (US, high-res)</option>
+            <option value="opentopodata">OpenTopoData (preview, low-res)</option>
             <option value="geotiff">Local GeoTIFF</option>
           </select>
           {config.provider === "geotiff" && (
@@ -490,6 +540,26 @@ export function ControlPanel() {
                 />
               </div>
 
+              <label className={styles.rowLabel}>
+                <span>Connector style</span>
+                <select
+                  className={`field ${styles.inlineSelect}`}
+                  value={config.connectorStyle}
+                  onChange={(e) =>
+                    setConfig({
+                      connectorStyle: e.target
+                        .value as typeof config.connectorStyle,
+                    })
+                  }
+                >
+                  {CONNECTOR_STYLES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <div className={styles.rowLabel}>
                 <span>Include display tray/frame</span>
                 <Toggle
@@ -498,6 +568,16 @@ export function ControlPanel() {
                   label="Include display tray/frame"
                 />
               </div>
+              {config.tray && (
+                <div className={styles.rowLabel}>
+                  <span>Split oversized tray (pinned halves)</span>
+                  <Toggle
+                    checked={config.traySplit}
+                    onChange={(v) => setConfig({ traySplit: v })}
+                    label="Split oversized tray"
+                  />
+                </div>
+              )}
 
               <div className={styles.rowLabel}>
                 <span>Water flattening</span>
@@ -524,6 +604,223 @@ export function ControlPanel() {
                   <span className={styles.suffix}>m</span>
                   <span className={styles.inlineHelp}>threshold</span>
                 </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* 8. COLOUR & MAP FEATURES */}
+        <section className={styles.section}>
+          <button
+            type="button"
+            className={styles.accordionHead}
+            onClick={() => setFeaturesOpen((v) => !v)}
+            aria-expanded={featuresOpen}
+          >
+            <span className="lbl" style={{ letterSpacing: "0.12em" }}>
+              COLOUR &amp; MAP FEATURES
+            </span>
+            <span className={styles.chevron}>{featuresOpen ? "▾" : "▸"}</span>
+          </button>
+          {featuresOpen && (
+            <div className={styles.accordionBody}>
+              {/* Magnets */}
+              <div className={styles.rowLabel}>
+                <span>Magnet pockets</span>
+                <Toggle
+                  checked={config.magnetsOn}
+                  onChange={(v) => setConfig({ magnetsOn: v })}
+                  label="Magnet pockets"
+                />
+              </div>
+              {config.magnetsOn && (
+                <div className={styles.grid2}>
+                  <label className={styles.miniLabel}>
+                    ⌀ mm
+                    <input
+                      className="field"
+                      type="number"
+                      step="0.5"
+                      min={1}
+                      value={config.magnetDiameterMm}
+                      onChange={(e) =>
+                        setConfig({ magnetDiameterMm: parseFloat(e.target.value) || 0 })
+                      }
+                    />
+                  </label>
+                  <label className={styles.miniLabel}>
+                    depth mm
+                    <input
+                      className="field"
+                      type="number"
+                      step="0.5"
+                      min={0.4}
+                      value={config.magnetDepthMm}
+                      onChange={(e) =>
+                        setConfig({ magnetDepthMm: parseFloat(e.target.value) || 0 })
+                      }
+                    />
+                  </label>
+                </div>
+              )}
+
+              {/* Tier-2: elevation-band contour colour */}
+              <div className={styles.rowLabel}>
+                <span>Contour colour bands (Tier 2)</span>
+                <Toggle
+                  checked={config.contourBandsOn}
+                  onChange={(v) => setConfig({ contourBandsOn: v })}
+                  label="Contour colour bands"
+                />
+              </div>
+              {config.contourBandsOn && (
+                <>
+                  <textarea
+                    className={`field ${styles.textarea}`}
+                    rows={3}
+                    placeholder={"min_m:name:hex, one per line\n1500:tan:#c8a165\n2500:snow:#ffffff"}
+                    value={config.bandsText}
+                    onChange={(e) => setConfig({ bandsText: e.target.value })}
+                  />
+                  <div className="helper">
+                    Emits <code>model-banded.3mf</code> — one object per band per piece.
+                  </div>
+                </>
+              )}
+
+              {/* Tier-3: OSM overlays */}
+              <div className={styles.rowLabel}>
+                <span>OSM feature overlays (Tier 3)</span>
+                <Toggle
+                  checked={config.overlaysOn}
+                  onChange={(v) => setConfig({ overlaysOn: v })}
+                  label="OSM feature overlays"
+                />
+              </div>
+              {config.overlaysOn && (
+                <>
+                  <div className={styles.chipRow}>
+                    {OVERLAY_CLASSES.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className={`${styles.chip} ${
+                          config.overlayClasses.includes(c) ? styles.chipOn : ""
+                        }`}
+                        onClick={() => toggleOverlayClass(c)}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                  <label className={styles.rowLabel}>
+                    <span>Render</span>
+                    <select
+                      className={`field ${styles.inlineSelect}`}
+                      value={config.overlayRender}
+                      onChange={(e) =>
+                        setConfig({
+                          overlayRender: e.target
+                            .value as typeof config.overlayRender,
+                        })
+                      }
+                    >
+                      <option value="deboss">Deboss (groove)</option>
+                      <option value="emboss">Emboss (raised)</option>
+                      <option value="inlay">Inlay (flush colour)</option>
+                    </select>
+                  </label>
+                  <div className={styles.sliderRow}>
+                    <span className={styles.sliderLabel}>width ×</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={20}
+                      step={0.5}
+                      value={config.overlayWidthScale}
+                      className={styles.range}
+                      onChange={(e) =>
+                        setConfig({ overlayWidthScale: parseFloat(e.target.value) })
+                      }
+                    />
+                    <span className={styles.sliderValue}>
+                      {config.overlayWidthScale.toFixed(1)}×
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.dropzone}
+                    onClick={() => geojsonRef.current?.click()}
+                  >
+                    <span className={styles.dropIcon} aria-hidden>
+                      ↥
+                    </span>{" "}
+                    {config.overlayGeojsonName ?? "upload GeoJSON (offline; else Overpass)"}
+                    <input
+                      ref={geojsonRef}
+                      type="file"
+                      accept=".geojson,.json,application/geo+json,application/json"
+                      className={styles.hiddenFile}
+                      onChange={onGeojsonFile}
+                    />
+                  </button>
+                </>
+              )}
+
+              {/* Tier-4: land cover */}
+              <div className={styles.rowLabel}>
+                <span>Land-cover colour (Tier 4)</span>
+                <Toggle
+                  checked={config.landcoverOn}
+                  onChange={(v) => setConfig({ landcoverOn: v })}
+                  label="Land-cover colour"
+                />
+              </div>
+              {config.landcoverOn && (
+                <>
+                  <button
+                    type="button"
+                    className={styles.dropzone}
+                    onClick={() => rasterRef.current?.click()}
+                  >
+                    <span className={styles.dropIcon} aria-hidden>
+                      ↥
+                    </span>{" "}
+                    {config.landcoverRasterName ??
+                      "upload classified raster (offline; else ESA WorldCover)"}
+                    <input
+                      ref={rasterRef}
+                      type="file"
+                      accept=".tif,.tiff,image/tiff"
+                      className={styles.hiddenFile}
+                      onChange={onRasterFile}
+                    />
+                  </button>
+                  <textarea
+                    className={`field ${styles.textarea}`}
+                    rows={3}
+                    placeholder={"class→filament: code:name:hex\n10:tree:#0a6b2d\n30:grass:#f7e08a\n(blank = auto top classes)"}
+                    value={config.landcoverMapText}
+                    onChange={(e) => setConfig({ landcoverMapText: e.target.value })}
+                  />
+                  <div className={styles.sliderRow}>
+                    <span className={styles.sliderLabel}>shell mm</span>
+                    <input
+                      type="range"
+                      min={0.4}
+                      max={2}
+                      step={0.1}
+                      value={config.landcoverShellMm}
+                      className={styles.range}
+                      onChange={(e) =>
+                        setConfig({ landcoverShellMm: parseFloat(e.target.value) })
+                      }
+                    />
+                    <span className={styles.sliderValue}>
+                      {config.landcoverShellMm.toFixed(1)}
+                    </span>
+                  </div>
+                </>
               )}
             </div>
           )}

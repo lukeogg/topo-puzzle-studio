@@ -18,7 +18,6 @@ from shapely.geometry import box
 from . import connectors
 from .color import color_changes_text
 from .config import AssemblyMode, ConnectorStyle, GenerateSettings
-from .labels import emboss_label
 from .puzzle import PuzzleResult
 from .validate import ValidationReport
 
@@ -36,20 +35,12 @@ def _to_origin(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
 
 
 def finalize_pieces(result: PuzzleResult) -> list[tuple[str, trimesh.Trimesh]]:
-    """Return (label, assembled-mesh) with underside labels applied if enabled."""
-    out = []
-    for p in result.pieces:
-        mesh = p.mesh
-        if result.settings.labels and not result.settings.is_solid:
-            try:
-                mesh = emboss_label(
-                    mesh, p.label, depth_mm=result.settings.label_depth_mm,
-                    height_mm=max(6.0, min(p.mesh.extents[0], p.mesh.extents[1]) * 0.25),
-                )
-            except Exception:  # labelling is best-effort; never fail the export
-                mesh = p.mesh
-        out.append((p.label, mesh))
-    return out
+    """Return (label, mesh) for each piece.
+
+    Labels and magnet pockets are already baked into ``piece.mesh`` by
+    ``split_puzzle`` (so validation covers them); this is now just a projection.
+    """
+    return [(p.label, p.mesh) for p in result.pieces]
 
 
 # --------------------------------------------------------------------------- #
@@ -143,6 +134,16 @@ def attribution_text(result: PuzzleResult) -> str:
         lines.append(f"Data timestamp     : {a.timestamp}")
     if a.text:
         lines += ["", a.text]
+    if result.settings.overlays.enabled:
+        lines += [
+            "",
+            "Map features (roads/trails/waterways/lakes) © OpenStreetMap contributors,",
+            "available under the Open Database License (ODbL). https://www.openstreetmap.org/copyright",
+        ]
+    for attr in result.extra_attributions:
+        lines += ["", f"Land cover : {attr.provider}", f"License    : {attr.license}"]
+        if attr.text:
+            lines.append(attr.text)
     lines += [
         "",
         "Generated models belong to you (see LICENSE, MIT).",
@@ -184,6 +185,14 @@ def print_notes_text(result: PuzzleResult) -> str:
             "- Print pieces individually or several per plate; assign a filament per piece for colour.",
             "- **Print coupon.stl first** to confirm the tab/socket fit at your clearance.",
         ]
+    if s.magnets.enabled:
+        lines += [
+            "",
+            "## Magnets",
+            f"- {s.magnets.diameter_mm:g} × {s.magnets.depth_mm:g} mm blind pockets in each piece bottom;",
+            "  press a magnet into each after printing to seat pieces on a ferrous base/tray.",
+            "- Pocket ceilings print as short bridges — no supports needed.",
+        ]
     lines += ["", "## Calibration coupon", "coupon.stl reproduces one tab + one socket at the exact",
               "connector geometry and clearance/gap above. Adjust clearance and regenerate if the fit is off.", ""]
     return "\n".join(lines)
@@ -200,6 +209,9 @@ def readme_text(result: PuzzleResult) -> str:
         "- `combined.stl` / `model.3mf` / `model.obj` — assembled reference (if selected)\n"
         "- `coupon.stl` — connector calibration coupon (print this first)\n"
         "- `color-changes.txt` — AMS filament-change Z heights per elevation band\n"
+        "- `model-banded.3mf` — per-band contour slabs as named objects (Tier-2 colour, if enabled)\n"
+        "- `model-overlays.3mf` — flush OSM inlay ribbons as named objects (Tier-3, if inlay mode)\n"
+        "- `model-landcover.3mf` — per-class land-cover top-shell regions (Tier-4, if enabled)\n"
         "- `settings.json` — the exact settings used (reproducible)\n"
         "- `validation-report.json` — watertight / build-volume / overhang checks\n"
         "- `attribution.txt` — elevation data source and license\n"
@@ -236,14 +248,20 @@ def package_zip(result: PuzzleResult, report: ValidationReport, out_path: str) -
             combined = trimesh.util.concatenate([m for _, m in named])
             z.writestr("model.obj", mesh_to_obj_bytes(combined))
 
-        # Optional display tray/frame.
-        if s.tray.enabled:
-            try:
-                from .tray import build_tray
+        # Colour objects were built and validated in split_puzzle — here we just
+        # serialize. Each 3MF is a complete, per-piece partition (base + colour).
+        colour_files = [
+            ("model-banded.3mf", result.banded_objects),
+            ("model-overlays.3mf", result.overlay_objects),
+            ("model-landcover.3mf", result.landcover_objects),
+        ]
+        for fname, objs in colour_files:
+            if objs:
+                z.writestr(fname, scene_to_3mf_bytes([(name, mesh) for name, mesh, _ in objs]))
 
-                z.writestr("tray.stl", mesh_to_stl_bytes(build_tray(result.terrain, s)))
-            except Exception:  # tray is best-effort; never fail the whole export
-                pass
+        # Tray part(s) (single tray, or pinned halves when oversized).
+        for name, mesh in result.tray_parts:
+            z.writestr(f"{name}.stl", mesh_to_stl_bytes(mesh))
 
         z.writestr("coupon.stl", mesh_to_stl_bytes(calibration_coupon(s)))
         z.writestr("color-changes.txt", color_changes_text(result.terrain, s))

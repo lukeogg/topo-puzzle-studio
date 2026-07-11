@@ -54,10 +54,25 @@ class PuzzleResult:
     terrain: TerrainResult
     settings: GenerateSettings
     warnings: list[str] = field(default_factory=list)
+    #: Tier-2 contour slabs, per piece, as (name, mesh, hex). Complete partition.
+    banded_objects: list = field(default_factory=list)
+    #: Tier-3 flush inlay ribbons + base, per piece, as (name, mesh, hex).
+    overlay_objects: list = field(default_factory=list)
+    #: Tier-4 land-cover shells + base, per piece, as (name, mesh, hex).
+    landcover_objects: list = field(default_factory=list)
+    #: Tray part(s) ready to export as (name, mesh).
+    tray_parts: list = field(default_factory=list)
+    #: Extra attribution blocks (e.g. land-cover licence) for the manifest.
+    extra_attributions: list = field(default_factory=list)
 
     @property
     def assembled_footprint_mm(self) -> tuple[float, float]:
         return (self.terrain.width_mm, self.terrain.height_mm)
+
+    @property
+    def color_objects(self) -> list:
+        """All Tier-2/3/4 colour objects (for validation and export)."""
+        return self.banded_objects + self.overlay_objects + self.landcover_objects
 
 
 def _largest(poly) -> Polygon:
@@ -153,55 +168,128 @@ def _prism(poly: Polygon, z_lo: float, z_hi: float) -> trimesh.Trimesh:
     return m
 
 
-def split_puzzle(grid: ElevationGrid, settings: GenerateSettings) -> PuzzleResult:
-    """Full split: terrain → tessellation → per-piece CSG intersection."""
+def _finalize_piece(mesh, piece, settings, warnings):
+    """Bake underside label + magnet pocket into a piece so the shipped mesh is
+    what gets validated (labels skipped for a single solid model)."""
+    if settings.labels and not settings.is_solid:
+        try:
+            from .labels import emboss_label
+
+            mesh = emboss_label(
+                mesh, piece.label, depth_mm=settings.label_depth_mm,
+                height_mm=max(6.0, min(mesh.extents[0], mesh.extents[1]) * 0.25),
+            )
+        except Exception as exc:  # noqa: BLE001 - label is cosmetic; record why
+            warnings.append(f"piece {piece.label}: label skipped ({exc})")
+    if settings.magnets.enabled:
+        try:
+            from .magnets import add_magnet_pockets
+
+            mesh, warn = add_magnet_pockets(mesh, piece.fit_footprint, settings.magnets, settings.base_mm)
+            if warn:
+                warnings.append(warn)
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"piece {piece.label}: magnet pocket skipped ({exc})")
+    return mesh
+
+
+def split_puzzle(
+    grid: ElevationGrid, settings: GenerateSettings, features=None, landcover=None
+) -> PuzzleResult:
+    """Full split: terrain → overlays → tessellation → per-piece CSG → finalize →
+    per-piece colour objects → tray. Every mesh returned here is export-final, so
+    validation covers exactly what ships."""
     terrain = build_terrain(grid, settings)
     warnings: list[str] = []
+    extra_attributions: list = []
 
+    # Tier-3 deboss/emboss are baked into the terrain solid before splitting so
+    # every piece inherits the grooves clipped at its seams. Inlay stays flush and
+    # comes back as 2-D regions for per-piece top-shell partitioning below.
+    inlay_regions: list = []
+    if settings.overlays.enabled and features:
+        from .overlays import apply_overlays
+
+        terrain, inlay_regions, ov_warns = apply_overlays(terrain, features, settings)
+        warnings.extend(ov_warns)
+
+    # --- build raw pieces ---
     if settings.is_solid:
-        piece = Piece(
-            row=0,
-            col=0,
-            label="A1",
+        pieces = [Piece(
+            row=0, col=0, label="A1",
             footprint=box(0, 0, terrain.width_mm, terrain.height_mm),
             fit_footprint=box(0, 0, terrain.width_mm, terrain.height_mm),
             mesh=terrain.mesh,
-        )
-        return PuzzleResult([piece], terrain, settings, warnings)
-
-    tess = build_tessellation(terrain, settings)
-
-    if settings.assembly is AssemblyMode.PRINT_IN_PLACE:
-        offset = settings.gap_mm / 2.0
+        )]
     else:
-        offset = settings.connector.clearance_mm / 2.0
+        tess = build_tessellation(terrain, settings)
+        offset = (settings.gap_mm if settings.assembly is AssemblyMode.PRINT_IN_PLACE
+                  else settings.connector.clearance_mm) / 2.0
+        z_lo, z_hi = -1.0, float(terrain.z_mm.max()) + 1.0
+        pieces = []
+        for (r, c), poly in sorted(tess.items()):
+            fit = _largest(poly.buffer(-offset, join_style=2)) if offset > 0 else poly
+            if fit.is_empty or fit.area <= 0:
+                warnings.append(f"piece {piece_label(r, c)} collapsed under the clearance/gap offset")
+                continue
+            mesh = trimesh.boolean.intersection([terrain.mesh, _prism(fit, z_lo, z_hi)], engine="manifold")
+            if mesh.is_empty or len(mesh.faces) == 0:
+                warnings.append(f"piece {piece_label(r, c)} produced an empty mesh")
+                continue
+            mesh.fix_normals()
+            pieces.append(Piece(r, c, piece_label(r, c), poly, fit, mesh))
 
-    z_lo = -1.0
-    z_hi = float(terrain.z_mm.max()) + 1.0
+    # --- finalize (labels + magnets) so validation sees the shipped meshes ---
+    for p in pieces:
+        p.mesh = _finalize_piece(p.mesh, p, settings, warnings)
 
-    pieces: list[Piece] = []
-    for (r, c), poly in sorted(tess.items()):
-        fit = _largest(poly.buffer(-offset, join_style=2)) if offset > 0 else poly
-        if fit.is_empty or fit.area <= 0:
-            warnings.append(
-                f"piece {piece_label(r, c)} collapsed under the clearance/gap offset"
-            )
-            continue
-        prism = _prism(fit, z_lo, z_hi)
-        mesh = trimesh.boolean.intersection([terrain.mesh, prism], engine="manifold")
-        if mesh.is_empty or len(mesh.faces) == 0:
-            warnings.append(f"piece {piece_label(r, c)} produced an empty mesh")
-            continue
-        mesh.fix_normals()
-        pieces.append(
-            Piece(
-                row=r,
-                col=c,
-                label=piece_label(r, c),
-                footprint=poly,
-                fit_footprint=fit,
-                mesh=mesh,
-            )
-        )
+    # --- per-piece colour objects (complete, non-overlapping partitions) ---
+    banded_objects, overlay_objects, landcover_objects = [], [], []
 
-    return PuzzleResult(pieces, terrain, settings, warnings)
+    if settings.contour_bands and settings.bands:
+        from .coloring import contour_partition
+        from .contour import band_z_cuts
+
+        bands, cuts, band_lo = band_z_cuts(terrain, settings)
+        if cuts[-1] > 0 and len(cuts) >= 2:
+            for p in pieces:
+                objs, w = contour_partition(p.mesh, p.label, bands, cuts, band_lo)
+                banded_objects.extend(objs)
+                warnings.extend(w)
+
+    if inlay_regions:
+        from .coloring import top_shell_partition
+
+        for p in pieces:
+            objs, w = top_shell_partition(p.mesh, p.label, inlay_regions, settings.overlays.relief_mm)
+            overlay_objects.extend(objs)
+            warnings.extend(w)
+
+    if settings.landcover.enabled and landcover is not None:
+        from .coloring import top_shell_partition
+        from .landcover import landcover_regions
+
+        regions, lc_warns, lc_attr = landcover_regions(terrain, landcover, settings)
+        warnings.extend(lc_warns)
+        if lc_attr is not None:
+            extra_attributions.append(lc_attr)
+        for p in pieces:
+            objs, w = top_shell_partition(p.mesh, p.label, regions, settings.landcover.shell_mm)
+            landcover_objects.extend(objs)
+            warnings.extend(w)
+
+    # --- tray part(s), built here so they are validated too ---
+    tray_parts: list = []
+    if settings.tray.enabled:
+        try:
+            from .tray import split_tray
+
+            tray_parts, tray_warns = split_tray(terrain, settings)
+            warnings.extend(tray_warns)
+        except Exception as exc:  # noqa: BLE001 - tray is optional; surface why
+            warnings.append(f"tray generation failed: {exc}")
+
+    return PuzzleResult(
+        pieces, terrain, settings, warnings,
+        banded_objects, overlay_objects, landcover_objects, tray_parts, extra_attributions,
+    )

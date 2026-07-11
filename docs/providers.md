@@ -20,11 +20,22 @@ UI's tile style is independent of the DEM provider.
    (`R*256 + G + B/256 - 32768`). Upstream attribution (SRTM, USGS 3DEP, ETOPO1,
    GMTED2010, national DEMs) is preserved — not merely "AWS Terrain Tiles".
    `--provider terrain-tiles --bbox W,S,E,N`.
-3. **USGS 3DEP** — planned. High-quality U.S. DEM.
-4. **OpenTopography** — planned. Optional API-key provider.
-5. **OpenTopoData** — planned, small-area/preview only. It is a point-lookup API;
-   dense grids would need excessive sampling against the public instance, so requests
-   are capped unless self-hosted.
+3. **USGS 3DEP** — ✅ implemented. High-quality U.S. DEM via The National Map's
+   dynamic `3DEPElevation` ImageServer `exportImage` (float32 GeoTIFF, no key).
+   U.S. coverage only; out-of-coverage cells return as nodata.
+   `--provider usgs-3dep --bbox W,S,E,N`.
+4. **OpenTopography** — ✅ implemented. Global DEM `globaldem` REST API; **requires
+   an API key** (`api_key=` or `OPENTOPOGRAPHY_API_KEY`). Pick a dataset with
+   `OpenTopographyProvider(demtype=...)` (default `SRTMGL1`; also `AW3D30`, `COP30`,
+   `NASADEM`, …). Public endpoint enforces an area cap — keep selections modest.
+   `--provider opentopography --bbox W,S,E,N`.
+5. **OpenTopoData** — ✅ implemented, small-area/preview only. It is a point-lookup
+   API; dense grids would need excessive sampling against the public instance, so the
+   total sample count is **capped** (default 100 points) and the grid resolution is
+   reduced to fit. Point `base_url` at a self-hosted instance and raise `max_points`
+   to lift the ceiling; pick the dataset with `OpenTopoDataProvider(dataset=...)`
+   (default `aster30m`). Ocean/out-of-coverage points return null and are carried
+   through as nodata. `--provider opentopodata --bbox W,S,E,N`.
 
 ## Adding a provider
 

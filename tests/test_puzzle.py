@@ -99,6 +99,46 @@ def test_print_in_place_forces_straight_connectors():
     assert s.connector.style is ConnectorStyle.STRAIGHT_TAB
 
 
+@pytest.mark.parametrize("style", [ConnectorStyle.ORGANIC_TAB, ConnectorStyle.VORONOI_TAB])
+def test_seeded_styles_tessellate_and_stay_watertight(hill_grid, style):
+    s = GenerateSettings(size_mm=180, rows=3, cols=3, max_grid=120)
+    s.connector.style = style
+    res = split_puzzle(hill_grid, s)
+    assert res.warnings == []
+    assert len(res.pieces) == 9
+    assert all(p.mesh.is_watertight and p.mesh.volume > 0 for p in res.pieces)
+    # The seeded knob must still yield an exact, gap-free tessellation.
+    terrain = res.terrain
+    tess = build_tessellation(terrain, s)
+    total = terrain.width_mm * terrain.height_mm
+    assert unary_union(list(tess.values())).area == pytest.approx(total, rel=1e-3)
+
+
+@pytest.mark.parametrize("style", [ConnectorStyle.ORGANIC_TAB, ConnectorStyle.VORONOI_TAB])
+def test_seeded_styles_are_deterministic_and_vary_by_seam(style):
+    from topopuzzle_mesh.connectors import tab_polygon
+
+    s = GenerateSettings(rows=2, cols=2)
+    s.connector.style = style
+    kw = dict(edge_length=50.0, seam_is_vertical=True, into_positive=True)
+    a = tab_polygon(s.connector, center=(10.0, 5.0), **kw)
+    a2 = tab_polygon(s.connector, center=(10.0, 5.0), **kw)
+    assert a.equals(a2)  # same seam -> identical (deterministic)
+    b = tab_polygon(s.connector, center=(30.0, 5.0), **kw)
+    assert not a.equals(b)  # different seam -> a different knob (organic variation)
+
+
+@pytest.mark.parametrize("style", [ConnectorStyle.ORGANIC_TAB, ConnectorStyle.VORONOI_TAB])
+def test_pip_forces_straight_for_undercut_styles(style):
+    from topopuzzle_mesh.config import ConnectorSettings
+
+    s = GenerateSettings(
+        rows=2, cols=2, assembly=AssemblyMode.PRINT_IN_PLACE,
+        connector=ConnectorSettings(style=style),
+    )
+    assert s.connector.style is ConnectorStyle.STRAIGHT_TAB
+
+
 def test_solid_model_single_piece(hill_grid):
     s = GenerateSettings(size_mm=150, rows=1, cols=1, max_grid=120)
     res = split_puzzle(hill_grid, s)

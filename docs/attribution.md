@@ -18,7 +18,7 @@ attribution requirements attach to the *input data*, not your printed object.
 Whatever tile provider you configure via `NEXT_PUBLIC_MAP_STYLE` carries its own
 attribution, which the map UI displays. This is separate from the elevation data.
 
-## Land cover / OSM overlays (future phases)
+## Land cover / OSM overlays
 
 - **OpenStreetMap** overlays (Tier 3) require **ODbL** attribution — added to the
   manifest whenever overlays are used.

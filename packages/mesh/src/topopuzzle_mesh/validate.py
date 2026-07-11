@@ -106,12 +106,39 @@ def validate(result: PuzzleResult) -> ValidationReport:
     neg_vol = [p.label for p in result.pieces if p.mesh.volume <= 0]
     rep.add("volume", not neg_vol, "positive solid volume" if not neg_vol else f"non-positive volume: {neg_vol}", ERROR)
 
+    # --- exported colour objects (contour / inlay / land-cover) ---
+    color_objs = result.color_objects
+    if color_objs:
+        bad = [name for name, m, _ in color_objs if not m.is_watertight or m.volume <= 0]
+        rep.add(
+            "color_objects",
+            not bad,
+            f"{len(color_objs)} colour objects watertight" if not bad else f"invalid colour objects: {bad}",
+            ERROR,
+        )
+
+    # --- exported tray part(s) ---
+    if result.tray_parts:
+        bad_tray = [name for name, m in result.tray_parts if not m.is_watertight or m.volume <= 0]
+        rep.add(
+            "tray_watertight",
+            not bad_tray,
+            f"{len(result.tray_parts)} tray part(s) watertight" if not bad_tray else f"invalid tray part(s): {bad_tray}",
+            ERROR,
+        )
+
     # --- minimum feature width at physical scale ---
     if not s.is_solid and s.connector.style is not ConnectorStyle.NONE:
         W, H = result.assembled_footprint_mm
         edge = min(W / s.cols, H / s.rows)
         tab_w = s.connector.width_frac * edge
-        neck = tab_w * (0.45 if s.connector.style is ConnectorStyle.ROUNDED_TAB else 1.0)
+        # Fraction of the tab width that the narrowest neck occupies, per style.
+        neck_frac = {
+            ConnectorStyle.ROUNDED_TAB: 0.45,
+            ConnectorStyle.ORGANIC_TAB: 0.5,
+            ConnectorStyle.VORONOI_TAB: 0.5,
+        }.get(s.connector.style, 1.0)
+        neck = tab_w * neck_frac
         ok = neck >= s.min_feature_mm
         rep.add(
             "connector_min_feature",
@@ -173,14 +200,29 @@ def validate(result: PuzzleResult) -> ValidationReport:
     if s.tray.enabled:
         tw = W + 2 * (s.tray.fit_gap_mm + s.tray.wall_mm)
         th = H + 2 * (s.tray.fit_gap_mm + s.tray.wall_mm)
-        ok_tray = tw <= bv.x_mm and th <= bv.y_mm
-        rep.add(
-            "tray_build_volume",
-            ok_tray,
-            f"tray {tw:.0f}×{th:.0f} mm fits the plate"
-            if ok_tray
-            else f"tray {tw:.0f}×{th:.0f} mm exceeds the {bv.x_mm:.0f}×{bv.y_mm:.0f} mm plate — print the puzzle without the tray or split it",
-        )
+        fits_whole = tw <= bv.x_mm and th <= bv.y_mm
+        if fits_whole:
+            rep.add("tray_build_volume", True, f"tray {tw:.0f}×{th:.0f} mm fits the plate")
+        elif s.tray.split_oversize:
+            # Mirror tray.split_tray's axis choice: halve the over-plate axis
+            # (the longer one when both exceed).
+            over_x, over_y = tw > bv.x_mm, th > bv.y_mm
+            split_x = (tw >= th) if (over_x and over_y) else over_x
+            hw, hh = (tw / 2.0, th) if split_x else (tw, th / 2.0)
+            halves_fit = hw <= bv.x_mm and hh <= bv.y_mm
+            rep.add(
+                "tray_build_volume",
+                halves_fit,
+                f"tray {tw:.0f}×{th:.0f} mm exceeds the plate — exported as two pinned halves ({hw:.0f}×{hh:.0f} mm each)"
+                if halves_fit
+                else f"tray {tw:.0f}×{th:.0f} mm too large even split into halves ({hw:.0f}×{hh:.0f} mm) — use a smaller model or omit the tray",
+            )
+        else:
+            rep.add(
+                "tray_build_volume",
+                False,
+                f"tray {tw:.0f}×{th:.0f} mm exceeds the {bv.x_mm:.0f}×{bv.y_mm:.0f} mm plate — enable tray splitting, print without the tray, or shrink the model",
+            )
 
     # --- overhang risk ---
     steep = result.terrain.max_slope_deg
